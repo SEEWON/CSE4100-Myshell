@@ -41,8 +41,12 @@ void eval(char *cmdline)
     if (!builtin_command(argv)) { //quit -> exit(0), & -> ignore, other -> run
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
-                printf("%s: Command not found.\n", argv[0]);
-                exit(0);
+                char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
+                strcpy(command_from_bin, "/bin/\0");
+                if (execve(strcat(command_from_bin,argv[0]), argv, environ) < 0) {
+                    printf("%s: Command not found.\n", argv[0]);
+                    exit(0);
+                }
             }
             // execvp(argv[0],argv);
         }
