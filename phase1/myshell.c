@@ -38,7 +38,7 @@ void eval(char *cmdline)
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
     if (argv[0] == NULL)  
 	    return;   /* Ignore empty lines */
-    if (!builtin_command(argv)) { //quit -> exit(0), & -> ignore, other -> run
+    if (!builtin_command(argv)) { /* If builtin command, execute in current process */
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
                 char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
@@ -72,7 +72,22 @@ int builtin_command(char **argv)
     else if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
 	    return 1;
     else if (!strcmp(argv[0], "cd")) {
-
+        char destination[MAXLINE];
+        if(!argv[1] || !strcmp(argv[1], "~") || !strcmp(argv[1], "~/")) {    /* set home location for "cd", "cd ~" input */
+            strcpy(destination, getenv("HOME"));
+        } 
+        else if (argv[1][0]=='$') {     /* If argv[1] is environment variable */
+            char environment[MAXLINE];
+            strncpy(environment, argv[1]+1, strlen(argv[1])-1);
+            environment[strlen(argv[1])] = '\0';
+            strcpy(destination, getenv(environment));
+        }
+        else {                          /* If argv[1] is specific location */
+            strcpy(destination, argv[1]);
+        }
+        if(chdir(destination) < 0) {
+            printf("%s: Location not found.\n", argv[1]);
+        }
         return 1;
     }
     else if (!strcmp(argv[0], "history")) {
