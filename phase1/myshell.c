@@ -4,30 +4,34 @@
 #define MAXARGS   128
 
 /* Function prototypes */
-void eval(char *cmdline);
+void eval(char *cmdline, FILE *fp);
 int parseline(char *buf, char **argv);
-int builtin_command(char **argv); 
+int builtin_command(char **argv, FILE *fp); 
 
 int main() 
 {
     char cmdline[MAXLINE]; /* Command line */
+    FILE *fp = Fopen(".myshell_history", "a+");
 
     while (1) {
 	/* Read */
 	printf("CSE4100-MP-PL> ");                   
 	fgets(cmdline, MAXLINE, stdin); 
+    /* Store in history*/
+    Fputs(cmdline, fp);
+
 	if (feof(stdin))
 	    exit(0);
 
 	/* Evaluate */
-	eval(cmdline);
+	eval(cmdline, fp);
     } 
 }
 /* $end shellmain */
   
 /* $begin eval */
 /* eval - Evaluate a command line */
-void eval(char *cmdline) 
+void eval(char *cmdline, FILE* fp) 
 {
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
@@ -38,11 +42,11 @@ void eval(char *cmdline)
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
     if (argv[0] == NULL)  
 	    return;   /* Ignore empty lines */
-    if (!builtin_command(argv)) { /* If builtin command, execute in current process */
+    if (!builtin_command(argv, fp)) { /* If builtin command, execute in current process */
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
                 char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
-                strcpy(command_from_bin, "/bin/\0");
+                strcpy(command_from_bin, "/bin/");
                 if (execve(strcat(command_from_bin,argv[0]), argv, environ) < 0) {
                     printf("%s: Command not found.\n", argv[0]);
                     exit(0);
@@ -63,12 +67,12 @@ void eval(char *cmdline)
 }
 
 /* If first arg is a builtin command, run it and return true */
-int builtin_command(char **argv) 
+int builtin_command(char **argv, FILE* fp) 
 {
-    if (!strcmp(argv[0], "quit")) /* quit command */
+    if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) { /* quit command */
+        Fclose(fp);
 	    exit(0);
-    else if (!strcmp(argv[0], "exit"))
-        exit(0);
+    }
     else if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
 	    return 1;
     else if (!strcmp(argv[0], "cd")) {
@@ -86,11 +90,28 @@ int builtin_command(char **argv)
             strcpy(destination, argv[1]);
         }
         if(chdir(destination) < 0) {
-            printf("%s: Location not found.\n", argv[1]);
+            printf("Change Directory error. Location not found. %s might not be a directory or possible path.\n", argv[1]);
         }
         return 1;
     }
     else if (!strcmp(argv[0], "history")) {
+        char history[MAXLINE];
+        int i=1;
+        fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
+        while(1) {
+            if(!Fgets(history, MAXLINE, fp)) break;
+            else {
+                printf("%d\t%s", i++, history);
+            }
+        }
+        fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
+        return 1;
+    }
+    else if (!strcmp(argv[0], "!!")) {
+
+        return 1;
+    }
+    else if (!strcmp(argv[0], "!#")) {
 
         return 1;
     }
