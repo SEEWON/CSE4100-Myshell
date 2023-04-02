@@ -69,7 +69,7 @@ void eval(char *cmdline, FILE* fp)
 /* If first arg is a builtin command, run it and return true */
 int builtin_command(char **argv, FILE* fp, char* cmdline) 
 {
-    if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) { /* quit command */
+    if (!strcmp(argv[0], "exit")) { /* quit command */
         save_history(cmdline, fp);
         Fclose(fp);
 	    exit(0);
@@ -109,6 +109,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
         return 1;
     }
     else if (argv[0][0]=='!') {
+        /* In case input starts with !! */
         if (argv[0][1]=='!') {
             int history_exists = 0;
             char prev_history[MAXLINE];
@@ -119,6 +120,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
             while(1) {
                 if(!Fgets(history, MAXLINE, fp)) break;
                 history_exists = 1;
+                prev_history[0] = '\0';
                 strcpy(prev_history, history);
             }
 
@@ -127,42 +129,28 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
             if (history_exists) {
                 /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
                 char new_cmdline[MAXLINE];
-                strncpy(new_cmdline, prev_history, strlen(prev_history)-1);
-                strncpy(new_cmdline + strlen(prev_history)-1, cmdline+2, strlen(cmdline)-2);
+
+                int prev_history_len = strlen(prev_history)-1;
+                int cmdline_len = strlen(cmdline)-1;
+
+                strncpy(new_cmdline, prev_history, prev_history_len);
+                strncpy(new_cmdline + prev_history_len, cmdline+2, strlen(cmdline)-2);
+                new_cmdline[prev_history_len + cmdline_len - 2] = '\n';
+                new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
 
                 eval(new_cmdline, fp);
-
             }
             else printf("-myshell: !!: event not found\n");
 
             return 1;
         } 
         
-        // else if () {
+        else {
 
-        // }
-    }
-    else if (!strcmp(argv[0], "!#")) {
-        int i=0;
-        int history_exists = 0;
-        char prev_history[MAXLINE];
-        char history[MAXLINE];
-        fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
-
-        /* Read history from beginning, */
-        while(1) {
-            if(!Fgets(history, MAXLINE, fp)) break;
-            history_exists = 1;
-            strcpy(prev_history, history);
+            return 1;
         }
-
-        fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
-
-        if (history_exists) eval(prev_history, fp);
-        else printf("-myshell: !!: event not found\n");
-
-        return 1;
     }
+    
     else return 0;                     /* Not a builtin command */
 }
 /* $end eval */
@@ -215,12 +203,18 @@ int save_history(char *cmdline, FILE *fp)
     while(1) {
         if(!Fgets(history, MAXLINE, fp)) break;
         history_exists = 1;
+        prev_history[0] = '\0';
         strcpy(prev_history, history);
     }
 
     fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
 
     /* Save as history if cmdline is new, or different with latest history */
-    if (!history_exists || (history_exists && strcmp(prev_history, cmdline)!=0)) Fputs(cmdline, fp);
+    if (!history_exists || (history_exists && (strcmp(prev_history, cmdline)!=0))) 
+    {
+        Fputs(cmdline, fp);
+    }
+    fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+
 }
 /* $end save_history */
