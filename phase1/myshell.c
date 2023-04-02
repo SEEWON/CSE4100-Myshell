@@ -4,9 +4,9 @@
 #define MAXARGS   128
 
 /* Function prototypes */
-void eval(char *cmdline, FILE *fp, int save_in_history);
+void eval(char *cmdline, FILE *fp);
 int parseline(char *buf, char **argv);
-int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
+int builtin_command(char **argv, FILE *fp, char *cmdline);
 int save_history(char *cmdline, FILE *fp);
 
 int main() 
@@ -23,14 +23,14 @@ int main()
 	    exit(0);
 
 	/* Evaluate */
-	eval(cmdline, fp, 1);
+	eval(cmdline, fp);
     } 
 }
 /* $end shellmain */
   
 /* $begin eval */
 /* eval - Evaluate a command line */
-void eval(char *cmdline, FILE* fp, int save_in_history) 
+void eval(char *cmdline, FILE* fp) 
 {
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
@@ -41,8 +41,8 @@ void eval(char *cmdline, FILE* fp, int save_in_history)
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
     if (argv[0] == NULL)  
 	    return;   /* Ignore empty lines */
-    if (!builtin_command(argv, fp, cmdline, save_in_history)) { /* If builtin command, execute in current process */
-        if(save_in_history) save_history(cmdline, fp);     /* Store in history */
+    if (!builtin_command(argv, fp, cmdline)) { /* If builtin command, execute in current process */
+        save_history(cmdline, fp);     /* Store in history */
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
                 char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
@@ -67,15 +67,15 @@ void eval(char *cmdline, FILE* fp, int save_in_history)
 }
 
 /* If first arg is a builtin command, run it and return true */
-int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history) 
+int builtin_command(char **argv, FILE* fp, char* cmdline) 
 {
     if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) { /* quit command */
+        save_history(cmdline, fp);
         Fclose(fp);
 	    exit(0);
     }
-    else if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
-	    return 1;
     else if (!strcmp(argv[0], "cd")) {
+        save_history(cmdline, fp);
         char destination[MAXLINE];
         if(!argv[1] || !strcmp(argv[1], "~") || !strcmp(argv[1], "~/")) {    /* set home location for "cd", "cd ~" input */
             strcpy(destination, getenv("HOME"));
@@ -95,7 +95,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
         return 1;
     }
     else if (!strcmp(argv[0], "history")) {
-        if(save_in_history) save_history(cmdline, fp);             /* Store in history */
+        save_history(cmdline, fp);             /* Store in history */
         char history[MAXLINE];
         int i=0;
         fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
@@ -108,7 +108,42 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
         fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
         return 1;
     }
-    else if (!strcmp(argv[0], "!!")) {
+    else if (argv[0][0]=='!') {
+        if (argv[0][1]=='!') {
+            int history_exists = 0;
+            char prev_history[MAXLINE];
+            char history[MAXLINE];
+            fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
+
+            /* Read history from beginning, */
+            while(1) {
+                if(!Fgets(history, MAXLINE, fp)) break;
+                history_exists = 1;
+                strcpy(prev_history, history);
+            }
+
+            fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+
+            if (history_exists) {
+                /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
+                char new_cmdline[MAXLINE];
+                strncpy(new_cmdline, prev_history, strlen(prev_history)-1);
+                strncpy(new_cmdline + strlen(prev_history)-1, cmdline+2, strlen(cmdline)-2);
+
+                eval(new_cmdline, fp);
+
+            }
+            else printf("-myshell: !!: event not found\n");
+
+            return 1;
+        } 
+        
+        // else if () {
+
+        // }
+    }
+    else if (!strcmp(argv[0], "!#")) {
+        int i=0;
         int history_exists = 0;
         char prev_history[MAXLINE];
         char history[MAXLINE];
@@ -123,15 +158,9 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
 
         fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
 
-        if (history_exists) eval(prev_history, fp, 0);
+        if (history_exists) eval(prev_history, fp);
         else printf("-myshell: !!: event not found\n");
 
-        return 1;
-    }
-    else if (!strcmp(argv[0], "!#")) {
-        // store history
-
-        //eval(prev_history, fp, 1)
         return 1;
     }
     else return 0;                     /* Not a builtin command */
