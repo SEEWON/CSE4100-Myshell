@@ -176,7 +176,22 @@ int parseline(char *buf, char **argv)
 /* save_history - Save the history in .myshell_history file */
 int save_history(char *cmdline, FILE *fp)
 {
-    //링크드리스트처럼 마지막 cmdline까지 읽어서 다르면 저장, 같으면 저장X
-    Fputs(cmdline, fp);
+    /* Read the latest history */
+    int history_exists = 0;
+
+    char prev_history[MAXLINE];
+    char history[MAXLINE];
+    fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
+
+    while(1) {
+        if(!Fgets(history, MAXLINE, fp)) break;
+        history_exists = 1;
+        strcpy(prev_history, history);
+    }
+
+    fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+
+    /* Save as history if cmdline is new, or different with latest history */
+    if (!history_exists || (history_exists && strcmp(prev_history, cmdline)!=0)) Fputs(cmdline, fp);
 }
 /* $end save_history */
