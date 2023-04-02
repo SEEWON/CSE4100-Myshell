@@ -4,9 +4,10 @@
 #define MAXARGS   128
 
 /* Function prototypes */
-void eval(char *cmdline, FILE *fp);
+void eval(char *cmdline, FILE *fp, int save_in_history);
 int parseline(char *buf, char **argv);
-int builtin_command(char **argv, FILE *fp); 
+int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
+int save_history(char *cmdline, FILE *fp);
 
 int main() 
 {
@@ -17,21 +18,19 @@ int main()
 	/* Read */
 	printf("CSE4100-MP-PL> ");                   
 	fgets(cmdline, MAXLINE, stdin); 
-    /* Store in history*/
-    Fputs(cmdline, fp);
 
 	if (feof(stdin))
 	    exit(0);
 
 	/* Evaluate */
-	eval(cmdline, fp);
+	eval(cmdline, fp, 1);
     } 
 }
 /* $end shellmain */
   
 /* $begin eval */
 /* eval - Evaluate a command line */
-void eval(char *cmdline, FILE* fp) 
+void eval(char *cmdline, FILE* fp, int save_in_history) 
 {
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
@@ -42,7 +41,8 @@ void eval(char *cmdline, FILE* fp)
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
     if (argv[0] == NULL)  
 	    return;   /* Ignore empty lines */
-    if (!builtin_command(argv, fp)) { /* If builtin command, execute in current process */
+    if (!builtin_command(argv, fp, cmdline, save_in_history)) { /* If builtin command, execute in current process */
+        if(save_in_history) save_history(cmdline, fp);     /* Store in history */
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
                 char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
@@ -67,7 +67,7 @@ void eval(char *cmdline, FILE* fp)
 }
 
 /* If first arg is a builtin command, run it and return true */
-int builtin_command(char **argv, FILE* fp) 
+int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history) 
 {
     if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) { /* quit command */
         Fclose(fp);
@@ -90,29 +90,48 @@ int builtin_command(char **argv, FILE* fp)
             strcpy(destination, argv[1]);
         }
         if(chdir(destination) < 0) {
-            printf("Change Directory error. Location not found. %s might not be a directory or possible path.\n", argv[1]);
+            printf("-myshell: cd: %s: No such file or directory.\n", argv[1]);
         }
         return 1;
     }
     else if (!strcmp(argv[0], "history")) {
+        if(save_in_history) save_history(cmdline, fp);             /* Store in history */
         char history[MAXLINE];
-        int i=1;
+        int i=0;
         fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
         while(1) {
             if(!Fgets(history, MAXLINE, fp)) break;
             else {
-                printf("%d\t%s", i++, history);
+                printf("%d\t%s", ++i, history);
             }
         }
         fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
         return 1;
     }
     else if (!strcmp(argv[0], "!!")) {
+        int history_exists = 0;
+        char prev_history[MAXLINE];
+        char history[MAXLINE];
+        fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
+
+        /* Read history from beginning, */
+        while(1) {
+            if(!Fgets(history, MAXLINE, fp)) break;
+            history_exists = 1;
+            strcpy(prev_history, history);
+        }
+
+        fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+
+        if (history_exists) eval(prev_history, fp, 0);
+        else printf("-myshell: !!: event not found\n");
 
         return 1;
     }
     else if (!strcmp(argv[0], "!#")) {
+        // store history
 
+        //eval(prev_history, fp, 1)
         return 1;
     }
     else return 0;                     /* Not a builtin command */
@@ -153,4 +172,11 @@ int parseline(char *buf, char **argv)
 }
 /* $end parseline */
 
-
+/* $begin save_history */
+/* save_history - Save the history in .myshell_history file */
+int save_history(char *cmdline, FILE *fp)
+{
+    //링크드리스트처럼 마지막 cmdline까지 읽어서 다르면 저장, 같으면 저장X
+    Fputs(cmdline, fp);
+}
+/* $end save_history */
