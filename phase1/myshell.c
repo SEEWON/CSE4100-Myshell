@@ -144,8 +144,50 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
 
             return 1;
         } 
-        
+
+        /* In case input starts with !# */
         else {
+            char history[MAXLINE];
+            char history_idx_str[MAXLINE];
+            strcpy(history_idx_str, argv[0]+1);
+            int history_idx_int = atoi(history_idx_str);
+            int matching_history = 0;
+
+            fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
+
+            for(int i=1;;i++) {
+                if(!Fgets(history, MAXLINE, fp)) {
+                    break;
+                }
+                else {
+                    if(history_idx_int==i) {    /* Execute corresponding history */
+                        matching_history = 1;
+
+                        /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
+                        char new_cmdline[MAXLINE]="";
+                        char exc_part_in_cmdline[MAXLINE]="";
+                        char option_part_in_cmdline[MAXLINE]="";
+                        sprintf(exc_part_in_cmdline, "%d", history_idx_int);
+                        int cmdline_len = strlen(cmdline)-1;
+                        int exc_part_len = strlen(exc_part_in_cmdline)+1; // +1 for the length of '!'
+                        int history_len = strlen(history)-1;
+
+                        strncpy(option_part_in_cmdline, cmdline + exc_part_len, cmdline_len-exc_part_len);
+                        int option_part_len = strlen(option_part_in_cmdline);
+                        strncpy(new_cmdline, history, history_len);
+                        strcat(new_cmdline, option_part_in_cmdline);
+                        new_cmdline[history_len + option_part_len] = '\n';
+                        new_cmdline[history_len + option_part_len +1] = '\0';
+
+                        eval(new_cmdline, fp);
+                        break;
+                    }
+                }
+            }
+
+            fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
+
+            if(!matching_history) printf("-myshell: %s: event not found\n", argv[0]);
 
             return 1;
         }
