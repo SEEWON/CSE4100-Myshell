@@ -40,9 +40,9 @@ void eval(char *cmdline, FILE* fp)
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
     if (argv[0] == NULL)  
-	    return;   /* Ignore empty lines */
-    if (!builtin_command(argv, fp, cmdline)) { /* If builtin command, execute in current process */
-        save_history(cmdline, fp);     /* Store in history */
+	    return;                                 /* Ignore empty lines */
+    if (!builtin_command(argv, fp, cmdline)) {  /* If builtin command, execute in current process */
+        save_history(cmdline, fp);              /* Store in history */
         if((pid=Fork())==0) {
             if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
                 char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
@@ -52,7 +52,7 @@ void eval(char *cmdline, FILE* fp)
                     exit(0);
                 }
             }
-            // execvp(argv[0],argv);
+            // execvp(argv[0],argv);                    /* Can also use execvp() instead of above execve with /bin, which automatically finds the right location */
         }
 
 	/* Parent waits for foreground job to terminate */
@@ -69,7 +69,7 @@ void eval(char *cmdline, FILE* fp)
 /* If first arg is a builtin command, run it and return true */
 int builtin_command(char **argv, FILE* fp, char* cmdline) 
 {
-    if (!strcmp(argv[0], "exit")) { /* quit command */
+    if (!strcmp(argv[0], "exit")) { /* exit command */
         save_history(cmdline, fp);
         Fclose(fp);
 	    exit(0);
@@ -86,10 +86,10 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
             environment[strlen(argv[1])] = '\0';
             strcpy(destination, getenv(environment));
         }
-        else {                          /* If argv[1] is specific location */
+        else {                          /* If argv[1] is specific(user-input) location */
             strcpy(destination, argv[1]);
         }
-        if(chdir(destination) < 0) {
+        if(chdir(destination) < 0) {    /* Navigate to location, print error if occurs */
             printf("-myshell: cd: %s: No such file or directory.\n", argv[1]);
         }
         return 1;
@@ -109,14 +109,14 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
         return 1;
     }
     else if (argv[0][0]=='!') {
-        /* In case input starts with !! */
+        /* In case cmdline starts with !! */
         if (argv[0][1]=='!') {
             int history_exists = 0;
             char prev_history[MAXLINE];
             char history[MAXLINE];
             fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
 
-            /* Read history from beginning, */
+            /* Read history from beginning, figure out the latest history */
             while(1) {
                 if(!Fgets(history, MAXLINE, fp)) break;
                 history_exists = 1;
@@ -126,6 +126,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
 
             fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
 
+            /* In case latest history exists */
             if (history_exists) {
                 /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
                 char new_cmdline[MAXLINE];
@@ -146,7 +147,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
             return 1;
         } 
 
-        /* In case input starts with !# */
+        /* In case cmdline starts with !, and pass # */
         else {
             char history[MAXLINE];
             char history_idx_str[MAXLINE];
@@ -160,11 +161,12 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
                 if(!Fgets(history, MAXLINE, fp)) {
                     break;
                 }
+                /* If matching(with #) history exists  */
                 else {
                     if(history_idx_int==i) {    /* Execute corresponding history */
                         matching_history = 1;
 
-                        /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
+                        /* Make new cmdline, substituting !# with corresponding cmdline. -1 is for removing the '\n' in the end */
                         char new_cmdline[MAXLINE]="";
                         char exc_part_in_cmdline[MAXLINE]="";
                         char option_part_in_cmdline[MAXLINE]="";
@@ -173,6 +175,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
                         int exc_part_len = strlen(exc_part_in_cmdline)+1; // +1 for the length of '!'
                         int history_len = strlen(history)-1;
 
+                        /* Passes the rest of cmdline, as input (After substituting !#) */
                         strncpy(option_part_in_cmdline, cmdline + exc_part_len, cmdline_len-exc_part_len);
                         int option_part_len = strlen(option_part_in_cmdline);
                         strncpy(new_cmdline, history, history_len);
@@ -258,7 +261,7 @@ int save_history(char *cmdline, FILE *fp)
     {
         Fputs(cmdline, fp);
     }
-    fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+    fseek(fp, 0, SEEK_END);         /* Move file pointer to the end again, since Fputs might executed */
 
 }
 /* $end save_history */
