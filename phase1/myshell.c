@@ -138,6 +138,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
                 new_cmdline[prev_history_len + cmdline_len - 2] = '\n';
                 new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
 
+                printf("%s", new_cmdline);
                 eval(new_cmdline, fp);
             }
             else printf("-myshell: !!: event not found\n");
@@ -178,7 +179,8 @@ int builtin_command(char **argv, FILE* fp, char* cmdline)
                         strcat(new_cmdline, option_part_in_cmdline);
                         new_cmdline[history_len + option_part_len] = '\n';
                         new_cmdline[history_len + option_part_len +1] = '\0';
-
+                        
+                        printf("%s", new_cmdline);
                         eval(new_cmdline, fp);
                         break;
                     }
