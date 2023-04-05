@@ -64,20 +64,23 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 exit(0);
             };                    
         }
-        if (fd1 && !fd2) close(fd1[1]);         /* Will only use read-end in parent */
-        else if (fd1 && fd2) {
-            close(fd1[0]);
-            close(fd2[1]);
+        else {                      /* Close not using fd in parent */
+            if (fd1 && !fd2) close(fd1[1]);
+            else if (fd1 && fd2) {
+                close(fd1[0]);
+                close(fd2[1]);
+            }
+            else if (!fd1 && fd2) close(fd2[0]);
         }
-        else if (!fd1 && fd2) close(fd2[0]);
+       
 
 	/* Parent waits for foreground job to terminate */
-	if (!bg){ 
-	    int status;
-        if (waitpid(pid, &status, 0) < 0) unix_error("waitfg: waitpid error");
-	}
-	else//when there is backgrount process!
-	    printf("%d %s", pid, cmdline);
+        if (!bg){ 
+            int status;
+            if (waitpid(pid, &status, 0) < 0) unix_error("waitfg: waitpid error");
+        }
+        else//when there is backgrount process!
+            printf("%d %s", pid, cmdline);
     }
     return;
 }
@@ -207,7 +210,8 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
                 new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
 
                 printf("%s", new_cmdline);
-                eval(new_cmdline, fp, save_in_history, NULL, NULL);
+                if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
+                else eval_pipeline(new_cmdline, fp);  
             }
             else printf("-myshell: !!: event not found\n");
 
@@ -251,7 +255,8 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
                         new_cmdline[history_len + option_part_len +1] = '\0';
                         
                         printf("%s", new_cmdline);
-                        eval(new_cmdline, fp, save_in_history, NULL, NULL);
+                        if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
+                        else eval_pipeline(new_cmdline, fp);  
                         break;
                     }
                 }
