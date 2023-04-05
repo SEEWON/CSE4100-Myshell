@@ -4,7 +4,7 @@
 #define MAXARGS   128
 
 /* Function prototypes */
-void eval(char *cmdline, FILE *fp, int save_in_history, int *fd);
+void eval(char *cmdline, FILE *fp, int save_in_history, int *fd1, int *fd2);
 void eval_pipeline(char *cmdline, FILE *fp);
 int parseline(char *buf, char **argv);
 int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
@@ -22,7 +22,7 @@ int main()
 
 	if (feof(stdin))
 	    exit(0);
-    if (!strchr(cmdline, '|')) eval(cmdline, fp, 1, NULL);   /* If no pipeline included */
+    if (!strchr(cmdline, '|')) eval(cmdline, fp, 1, NULL, NULL);   /* If no pipeline included */
     else eval_pipeline(cmdline, fp);                /* If pipeline included */
     } 
 }
@@ -31,7 +31,7 @@ int main()
 /* $begin eval */
 /* eval - Evaluate a command line */
 /* If called from eval_pipeline, don't save in history. Else, save in history. */
-void eval(char *cmdline, FILE* fp, int save_in_history, int *fd) 
+void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2) 
 {
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
@@ -45,53 +45,31 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd)
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
         save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
-            
-            if (fd) {
-                close(fd[0]);                   /* Will only use write-end in child */
-                Dup2(fd[1], 1);                 /* Substitte stdout to fd[1] */
-            }              
+            if (fd1 && !fd2) {
+                close(fd1[0]);                  /* Will only use write-end in child */
+                Dup2(fd1[1], 1);                /* Substitute stdout to fd1[1] */
+            }
+            else if (fd1 && fd2) {
+                close(fd1[1]);
+                Dup2(fd1[0], 0);
+                close(fd2[0]);
+                Dup2(fd2[1], 1);
+            }
+            else if (!fd1 && fd2) {
+                close(fd2[1]);
+                Dup2(fd2[0], 0);
+            }
             if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             };                    
         }
-        if (fd) close(fd[1]);                    /* Will only use read-end in parent */
-
-	/* Parent waits for foreground job to terminate */
-	if (!bg){ 
-	    int status;
-        if (waitpid(pid, &status, 0) < 0) unix_error("waitfg: waitpid error");
-	}
-	else//when there is backgrount process!
-	    printf("%d %s", pid, cmdline);
-    }
-    return;
-}
-
-void eval2(char *cmdline, FILE* fp, int save_in_history, int *fd) 
-{
-    char *argv[MAXARGS]; /* Argument list execve() */
-    char buf[MAXLINE];   /* Holds modified command line */
-    int bg;              /* Should the job run in bg or fg? */
-    pid_t pid;           /* Process id */
-    
-    strcpy(buf, cmdline);
-    bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
-    if (argv[0] == NULL)  
-	    return;                                 /* Ignore empty lines */
-    if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
-        save_history(cmdline, fp, save_in_history);              /* Store in history */
-        if((pid=Fork())==0) {
-            
-            if (fd) {
-                Dup2(fd[0], 0);
-                Dup2(fd[1], 1);
-            }              
-            if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
-                printf("%s: Command not found.\n", argv[0]);
-                exit(0);
-            };                    
+        if (fd1 && !fd2) close(fd1[1]);         /* Will only use read-end in parent */
+        else if (fd1 && fd2) {
+            close(fd1[0]);
+            close(fd2[1]);
         }
+        else if (!fd1 && fd2) close(fd2[0]);
 
 	/* Parent waits for foreground job to terminate */
 	if (!bg){ 
@@ -104,76 +82,55 @@ void eval2(char *cmdline, FILE* fp, int save_in_history, int *fd)
     return;
 }
 
-void eval3(char *cmdline, FILE* fp, int save_in_history, int *fd) 
-{
-    char *argv[MAXARGS]; /* Argument list execve() */
-    char buf[MAXLINE];   /* Holds modified command line */
-    int bg;              /* Should the job run in bg or fg? */
-    pid_t pid;           /* Process id */
-    
-    strcpy(buf, cmdline);
-    bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
-    if (argv[0] == NULL)  
-	    return;                                 /* Ignore empty lines */
-    if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
-        save_history(cmdline, fp, save_in_history);              /* Store in history */
-        if((pid=Fork())==0) {
-            
-            if (fd) {
-                Dup2(fd[0], 0);
-            }              
-            if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
-                printf("%s: Command not found.\n", argv[0]);
-                exit(0);
-            };     
-        }
-        close(fd[0]);
-
-	/* Parent waits for foreground job to terminate */
-	if (!bg){ 
-	    int status;
-        if (waitpid(pid, &status, 0) < 0) unix_error("waitfg: waitpid error");
-	}
-	else//when there is backgrount process!
-	    printf("%d %s", pid, cmdline);
-    }
-    return;
-}
 
 /* $begin eval_pipeline */
 /* eval_pipeline - Evaluate a command line with '|' included*/
 void eval_pipeline(char *cmdline, FILE* fp) 
 {
-    char *each_cmdline = strtok(cmdline, "|");
+    int i=0;
     save_history(cmdline, fp, 1);
 
-    int fd[2];          /* File descripter for pipeline */
-
-    // Dup2(0, fd[0]);
-
-    // while(each_cmdline != NULL) {
-        if (pipe(fd)<0) unix_error("pipe error");
-        eval(each_cmdline, fp, 0, fd);      //ls | fd[1] 닫음, 자식에서 쓸거니까 부모에서는 쓰는 거 닫음
+    /* Count number of command connected with pipe */
+    char temp[MAXLINE];
+    strcpy(temp, cmdline);
+    int each_cmd_cnt=0;
+    char *each_cmdline = strtok(temp, "|");
+    while(each_cmdline) {
+        i++;
         each_cmdline = strtok(NULL, "|");
+    }
 
-        eval3(each_cmdline, fp, 0, fd);     //grep c | fd[0] 닫음, 자식에서 들을거니까 부모에서는 듣는 거 닫음
+    int *fd1 = (int*) malloc(sizeof(int)*2);          /* File descripter for pipeline */
+    int *fd2 = (int*) malloc(sizeof(int)*2);
+    if (pipe(fd1)<0) unix_error("pipe error");
+    if (pipe(fd2)<0) unix_error("pipe error");
+
+    /* Execute the first command, send the result to first pipe */
+    each_cmdline = strtok(cmdline, "|");
+    eval(each_cmdline, fp, 0, fd1, NULL);
+
+    /* Get input from pipe fd1, Execute the between commands, send the result to next pipe fd2 */
+    int j=0;
+    while(j < i-2) {
+        j++;
         each_cmdline = strtok(NULL, "|");
+        eval(each_cmdline, fp, 0, fd1, fd2);    // fd1로부터 읽음, fd2로 씀.
 
-        // eval2(each_cmdline, fp, 0, fd);     //grep abc
-        // each_cmdline = strtok(NULL, "|");
+        free(fd1);
+        fd1 = (int*) malloc(sizeof(int)*2);
+        fd1[0] = fd2[0]; fd1[1] = fd2[1];       // fd2로 fd1덮어씀. (fd1으로 fd2 복사)
 
-        // char temp[255];
-        // read(fd[0], temp, 255);
-        // printf("%s", temp);
+        free(fd2);
+        fd2 = (int*) malloc(sizeof(int)*2);
+        if (pipe(fd2)<0) unix_error("pipe error");
+    }
 
+    /* Execute the last command, print the result to stdout */
+    each_cmdline = strtok(NULL, "|");
+    eval(each_cmdline, fp, 0, NULL, fd1); //fd1로부터 읽음, stdout으로 씀.
+    free(fd2);
 
-    // }
-    close(fd[0]);     /* Close file descriptor when fisnished using */
-    close(fd[1]);
-    
-
-
-    return;
+    return ;
 }
 
 /* If first arg is a builtin command, run it and return true */
@@ -250,7 +207,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
                 new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
 
                 printf("%s", new_cmdline);
-                eval(new_cmdline, fp, save_in_history, NULL);
+                eval(new_cmdline, fp, save_in_history, NULL, NULL);
             }
             else printf("-myshell: !!: event not found\n");
 
@@ -294,7 +251,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
                         new_cmdline[history_len + option_part_len +1] = '\0';
                         
                         printf("%s", new_cmdline);
-                        eval(new_cmdline, fp, save_in_history, NULL);
+                        eval(new_cmdline, fp, save_in_history, NULL, NULL);
                         break;
                     }
                 }
