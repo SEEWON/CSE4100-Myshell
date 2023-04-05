@@ -59,6 +59,20 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 close(fd2[1]);
                 Dup2(fd2[0], 0);
             }
+            if (!strcmp(argv[0], "history")) {
+                save_history(cmdline, fp, save_in_history);     /* Store in history */
+                char history[MAXLINE];
+                int i=0;
+                fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
+                while(1) {
+                    if(!Fgets(history, MAXLINE, fp)) break;
+                    else {
+                        printf("%d\t%s", ++i, history);
+                    }
+                }
+                fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
+                exit(0);
+            }
             if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
@@ -162,20 +176,6 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
         if(chdir(destination) < 0) {    /* Navigate to location, print error if occurs */
             printf("-myshell: cd: %s: No such file or directory.\n", argv[1]);
         }
-        return 1;
-    }
-    else if (!strcmp(argv[0], "history")) {
-        save_history(cmdline, fp, save_in_history);     /* Store in history */
-        char history[MAXLINE];
-        int i=0;
-        fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
-        while(1) {
-            if(!Fgets(history, MAXLINE, fp)) break;
-            else {
-                printf("%d\t%s", ++i, history);
-            }
-        }
-        fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
         return 1;
     }
     else if (argv[0][0]=='!') {

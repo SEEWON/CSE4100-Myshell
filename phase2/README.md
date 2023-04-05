@@ -1,73 +1,24 @@
 # Phase 2
 ## 구현 내용
+### 파이프 구현 로직
+main -> eval_pipeline -> while(eval())
 
-main -> eval -> strtok -> while() 안에서 넘김.
-A의 출력 B로, B 
+1. eval_pipeline에서는 파이프로 구분된 command의 개수를 센다.
+2. 가장 먼저 실행되는 command와, 가장 마지막에 실행되는 command를 제외한 command들은 while 문 안에서 반복해 수행된다.
+3. command와 command 간에는 pipeline을 통해 출력을 입력으로 보내 준다.
+4. file descripter는 fd1, fd2 두 개를 사용한다. 파이프는 한번 close()된 후에는 다시 사용하지 않으므로, fd1과 fd2는 동적으로 할당하고 해제하며 관리한다.
 
-A | B | C | D
+5. 가장 먼저 실행되는 command
+실행하고, 그 output을 fd1[1]에 쓴다.
 
-eval_pipeline 안에서 | 기준으로 파싱
-fd 열고, 하나의 명령어를 eval() 시킴
-eval() 파라미터로 flag 하나 넘겨서 안에서는 히스토리 저장 안하도록.
+6. while() 문 안에서 순차적으로 처리되는 command(들)
+앞서 출력되는 fd1[1]을 읽어와 fd2[0] 입력으로 실행하고, 그 output을 fd2[1] 출력으로 내보낸다.
+fd1을 사용하는 파이프는 이미 한번 사용했으므로(close했음), free하고 새로운 fd1을 할당한다.
+현재 command가 내보낸 출력이 존재하는 fd2를 fd1으로 복사하고, fd2도 free 후 새로 할당한다.
+이제 while문이 시작될 때와 같은 상태가 되었다. 앞선 명령의 출력이 fd1에 존재하고, fd2는 비어 있는 상태이다.
+수행되어야 할 command의 개수만큼 반복한다.
 
-리턴해서 eval_pipeline로 돌아왔을 때는 그 결과 그대로 넣도록.
-pipeline 개수만큼 while 안에서.
-마지막 C | D 남았을때는 표준 출력 stdout으로 출력하도록.
+7. 가장 마지막으로 실행되는 command
+fd1[0]에 있는 앞선 command의 출력을 읽어 와 stdout으로 출력한다.
 
-
-int main() {
-    int fd[2];
-    pid_t pid;
-    char buf[MAXLINE];
-
-    // 파이프 생성
-    if (pipe(fd) < 0) {
-        perror("pipe error");
-        exit(1);
-    }
-
-    if ((pid = fork()) < 0) {
-        perror("fork error");
-        exit(1);
-    } else if (pid == 0) {  // 자식 프로세스
-        close(fd[0]); // 파이프의 읽기용 디스크립터를 닫음
-
-        // 파이프의 쓰기용 디스크립터를 표준 출력으로 대체
-        if (dup2(fd[1], STDOUT_FILENO) != STDOUT_FILENO) {
-            perror("dup2 error to stdout");
-            exit(1);
-        }
-        close(fd[1]); // 파이프의 쓰기용 디스크립터를 닫음
-
-        // 프로그램 실행
-        char *args[] = {"ls", "-al", NULL};
-        execve("/bin/ls", args, NULL);
-
-        perror("execve error");
-        exit(1);
-    } else { // 부모 프로세스
-        close(fd[1]); // 파이프의 쓰기용 디스크립터를 닫음
-
-        // 파이프의 읽기용 디스크립터로부터 결과를 읽어들임
-        int nbytes = 0;
-        while ((nbytes = read(fd[0], buf, MAXLINE)) > 0) {
-            if (write(STDOUT_FILENO, buf, nbytes) != nbytes) {
-                perror("write error");
-                exit(1);
-            }
-        }
-        if (nbytes < 0) {
-            perror("read error");
-            exit(1);
-        }
-
-        if (waitpid(pid, NULL, 0) < 0) { // 자식 프로세스의 종료를 기다림
-            perror("waitpid error");
-            exit(1);
-        }
-
-        close(fd[0]); // 파이프의 읽기용 디스크립터를 닫음
-    }
-
-    return 0;
-}
+8. 위 5, 6, 7번 항목은 모두 eval() 함수를 호출해 수행되나, 각 경우의 파라미터를 다르게 넘겨 구분한다. 5번 항목은 fd1만, 6번 항목은 fd1/fd2를, 7번 항목은 fd1만 넘긴다. 5번 항목은 7번 항목과 구분하기 위해 코드 상에서 fd1을 fd2자리에서 넘긴다. 7번 항목, 가장 마지막으로 실행되는 command에 대해 eval() 내에서 처리되는 fd는 코드 상 fd2 자리에서 사용되나 실제로 fd1이다.
