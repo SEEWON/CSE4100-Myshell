@@ -55,7 +55,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd)
                 exit(0);
             };                    
         }
-        if (fd) close(fd[1]);                    /* Will only use read-end in child */
+        if (fd) close(fd[1]);                    /* Will only use read-end in parent */
 
 	/* Parent waits for foreground job to terminate */
 	if (!bg){ 
@@ -125,8 +125,9 @@ void eval3(char *cmdline, FILE* fp, int save_in_history, int *fd)
             if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
-            };                    
+            };     
         }
+        close(fd[0]);
 
 	/* Parent waits for foreground job to terminate */
 	if (!bg){ 
@@ -152,15 +153,14 @@ void eval_pipeline(char *cmdline, FILE* fp)
 
     // while(each_cmdline != NULL) {
         if (pipe(fd)<0) unix_error("pipe error");
-        eval(each_cmdline, fp, 0, fd);      //ls
+        eval(each_cmdline, fp, 0, fd);      //ls | fd[1] 닫음, 자식에서 쓸거니까 부모에서는 쓰는 거 닫음
         each_cmdline = strtok(NULL, "|");
 
-        eval2(each_cmdline, fp, 0, fd);     //grep abc
+        eval3(each_cmdline, fp, 0, fd);     //grep c | fd[0] 닫음, 자식에서 들을거니까 부모에서는 듣는 거 닫음
         each_cmdline = strtok(NULL, "|");
 
-        eval3(each_cmdline, fp, 0, fd);     //grep c
-        each_cmdline = strtok(NULL, "|");
-
+        // eval2(each_cmdline, fp, 0, fd);     //grep abc
+        // each_cmdline = strtok(NULL, "|");
 
         // char temp[255];
         // read(fd[0], temp, 255);
