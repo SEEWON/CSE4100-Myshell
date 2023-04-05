@@ -44,15 +44,20 @@ void eval(char *cmdline, FILE* fp)
     if (!builtin_command(argv, fp, cmdline)) {  /* If builtin command, execute in current process */
         save_history(cmdline, fp);              /* Store in history */
         if((pid=Fork())==0) {
-            if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
-                char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
-                strcpy(command_from_bin, "/bin/");
-                if (execve(strcat(command_from_bin,argv[0]), argv, environ) < 0) {
-                    printf("%s: Command not found.\n", argv[0]);
-                    exit(0);
-                }
-            }
-            // execvp(argv[0],argv);                    /* Can also use execvp() instead of above execve with /bin, which automatically finds the right location */
+            // if (execve(argv[0], argv, environ) < 0) {	//ex) /bin/ls ls -al &
+            //     char command_from_bin[MAXLINE];         /* Try to execute file from /bin location if error */
+            //     strcpy(command_from_bin, "/bin/");
+            //     if (execve(strcat(command_from_bin,argv[0]), argv, environ) < 0) {
+            //         printf("%s: Command not found.\n", argv[0]);
+            //         exit(0);
+            //     }
+            // }
+
+            /* Can also use execvp() instead of above execve with /bin, which automatically finds the right location */
+            if (execvp(argv[0],argv) < 0) {
+                printf("%s: Command not found.\n", argv[0]);
+                exit(0);
+            };          
         }
 
 	/* Parent waits for foreground job to terminate */
