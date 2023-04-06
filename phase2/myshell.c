@@ -43,8 +43,10 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     if (argv[0] == NULL)  
 	    return;                                 /* Ignore empty lines */
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
-        save_history(cmdline, fp, save_in_history);              /* Store in history */
+        if(argv[0][0]!='!') save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
+
+            /* If pipeline set, set the IO descripters */
             if (fd1 && !fd2) {
                 close(fd1[0]);                  /* Will only use write-end in child */
                 Dup2(fd1[1], 1);                /* Substitute stdout to fd1[1] */
@@ -59,8 +61,8 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 close(fd2[1]);
                 Dup2(fd2[0], 0);
             }
+
             if (!strcmp(argv[0], "history")) {
-                save_history(cmdline, fp, save_in_history);     /* Store in history */
                 char history[MAXLINE];
                 int i=0;
                 fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
@@ -73,7 +75,100 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
                 exit(0);
             }
-            if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
+
+            else if (argv[0][0]=='!') {
+                /* In case cmdline starts with !! */
+                if (argv[0][1]=='!') {
+                    int history_exists = 0;
+                    char prev_history[MAXLINE];
+                    char history[MAXLINE];
+                    fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
+
+                    /* Read history from beginning, figure out the latest history */
+                    while(1) {
+                        if(!Fgets(history, MAXLINE, fp)) break;
+                        history_exists = 1;
+                        prev_history[0] = '\0';
+                        strcpy(prev_history, history);
+                    }
+
+                    fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
+
+                    /* In case latest history exists */
+                    if (history_exists) {
+                        /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
+                        char new_cmdline[MAXLINE];
+
+                        int prev_history_len = strlen(prev_history)-1;
+                        int cmdline_len = strlen(cmdline)-1;
+
+                        strncpy(new_cmdline, prev_history, prev_history_len);
+                        strncpy(new_cmdline + prev_history_len, cmdline+2, strlen(cmdline)-2);
+                        new_cmdline[prev_history_len + cmdline_len - 2] = '\n';
+                        new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
+
+                        printf("%s", new_cmdline);
+                        if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
+                        else eval_pipeline(new_cmdline, fp);  
+                    }
+                    else printf("-myshell: !!: event not found\n");
+
+                    exit(0);
+                } 
+
+                /* In case cmdline starts with !, and pass # */
+                else {
+                    char history[MAXLINE];
+                    char history_idx_str[MAXLINE];
+                    strcpy(history_idx_str, argv[0]+1);
+                    int history_idx_int = atoi(history_idx_str);
+                    int matching_history = 0;
+
+                    fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
+
+                    for(int i=1;;i++) {
+                        if(!Fgets(history, MAXLINE, fp)) {
+                            break;
+                        }
+                        /* If matching(with #) history exists  */
+                        else {
+                            if(history_idx_int==i) {    /* Execute corresponding history */
+                                matching_history = 1;
+
+                                /* Make new cmdline, substituting !# with corresponding cmdline. -1 is for removing the '\n' in the end */
+                                char new_cmdline[MAXLINE]="";
+                                char exc_part_in_cmdline[MAXLINE]="";
+                                char option_part_in_cmdline[MAXLINE]="";
+                                sprintf(exc_part_in_cmdline, "%d", history_idx_int);
+                                int cmdline_len = strlen(cmdline)-1;
+                                int exc_part_len = strlen(exc_part_in_cmdline)+1; // +1 for the length of '!'
+                                int history_len = strlen(history)-1;
+
+                                /* Passes the rest of cmdline, as input (After substituting !#) */
+                                strncpy(option_part_in_cmdline, cmdline + exc_part_len, cmdline_len-exc_part_len);
+                                int option_part_len = strlen(option_part_in_cmdline);
+                                strncpy(new_cmdline, history, history_len);
+                                strcat(new_cmdline, option_part_in_cmdline);
+                                new_cmdline[history_len + option_part_len] = '\n';
+                                new_cmdline[history_len + option_part_len +1] = '\0';
+                                
+                                printf("%s", new_cmdline);
+                                if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
+                                else eval_pipeline(new_cmdline, fp);  
+                                break;
+                            }
+                        }
+                    }
+
+                    fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
+
+                    if(!matching_history) printf("-myshell: %s: event not found\n", argv[0]);
+
+                    exit(0);
+                }
+            }
+
+            else if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             };                    
@@ -105,11 +200,10 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 void eval_pipeline(char *cmdline, FILE* fp) 
 {
     int i=0;
-    save_history(cmdline, fp, 1);
 
     /* Count number of command connected with pipe */
-    char temp[MAXLINE];
-    strcpy(temp, cmdline);
+    char temp[MAXLINE], original_cmdline[MAXLINE];
+    strcpy(temp, cmdline); strcpy(original_cmdline, cmdline);
     int each_cmd_cnt=0;
     char *each_cmdline = strtok(temp, "|");
     while(each_cmdline) {
@@ -147,6 +241,9 @@ void eval_pipeline(char *cmdline, FILE* fp)
     eval(each_cmdline, fp, 0, NULL, fd1); //fd1로부터 읽음, stdout으로 씀.
     free(fd2);
 
+    //여기서 !!, !#만 subtitute해서 저장해 주면 됨.
+    save_history(original_cmdline, fp, 1);
+
     return ;
 }
 
@@ -178,97 +275,7 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
         }
         return 1;
     }
-    else if (argv[0][0]=='!') {
-        /* In case cmdline starts with !! */
-        if (argv[0][1]=='!') {
-            int history_exists = 0;
-            char prev_history[MAXLINE];
-            char history[MAXLINE];
-            fseek(fp, 0, SEEK_SET);         /* Move file pointer to the beginning of the file */
 
-            /* Read history from beginning, figure out the latest history */
-            while(1) {
-                if(!Fgets(history, MAXLINE, fp)) break;
-                history_exists = 1;
-                prev_history[0] = '\0';
-                strcpy(prev_history, history);
-            }
-
-            fseek(fp, 0, SEEK_END);         /* Move file pointer to the end of the file */
-
-            /* In case latest history exists */
-            if (history_exists) {
-                /* Make new cmdline, substituting !! with previous command. -1 is for removing the '\n' in the end */
-                char new_cmdline[MAXLINE];
-
-                int prev_history_len = strlen(prev_history)-1;
-                int cmdline_len = strlen(cmdline)-1;
-
-                strncpy(new_cmdline, prev_history, prev_history_len);
-                strncpy(new_cmdline + prev_history_len, cmdline+2, strlen(cmdline)-2);
-                new_cmdline[prev_history_len + cmdline_len - 2] = '\n';
-                new_cmdline[prev_history_len + cmdline_len - 1] = '\0';
-
-                printf("%s", new_cmdline);
-                if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
-                else eval_pipeline(new_cmdline, fp);  
-            }
-            else printf("-myshell: !!: event not found\n");
-
-            return 1;
-        } 
-
-        /* In case cmdline starts with !, and pass # */
-        else {
-            char history[MAXLINE];
-            char history_idx_str[MAXLINE];
-            strcpy(history_idx_str, argv[0]+1);
-            int history_idx_int = atoi(history_idx_str);
-            int matching_history = 0;
-
-            fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
-
-            for(int i=1;;i++) {
-                if(!Fgets(history, MAXLINE, fp)) {
-                    break;
-                }
-                /* If matching(with #) history exists  */
-                else {
-                    if(history_idx_int==i) {    /* Execute corresponding history */
-                        matching_history = 1;
-
-                        /* Make new cmdline, substituting !# with corresponding cmdline. -1 is for removing the '\n' in the end */
-                        char new_cmdline[MAXLINE]="";
-                        char exc_part_in_cmdline[MAXLINE]="";
-                        char option_part_in_cmdline[MAXLINE]="";
-                        sprintf(exc_part_in_cmdline, "%d", history_idx_int);
-                        int cmdline_len = strlen(cmdline)-1;
-                        int exc_part_len = strlen(exc_part_in_cmdline)+1; // +1 for the length of '!'
-                        int history_len = strlen(history)-1;
-
-                        /* Passes the rest of cmdline, as input (After substituting !#) */
-                        strncpy(option_part_in_cmdline, cmdline + exc_part_len, cmdline_len-exc_part_len);
-                        int option_part_len = strlen(option_part_in_cmdline);
-                        strncpy(new_cmdline, history, history_len);
-                        strcat(new_cmdline, option_part_in_cmdline);
-                        new_cmdline[history_len + option_part_len] = '\n';
-                        new_cmdline[history_len + option_part_len +1] = '\0';
-                        
-                        printf("%s", new_cmdline);
-                        if (!strchr(new_cmdline, '|')) eval(new_cmdline, fp, save_in_history, NULL, NULL);   /* If no pipeline included */
-                        else eval_pipeline(new_cmdline, fp);  
-                        break;
-                    }
-                }
-            }
-
-            fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
-
-            if(!matching_history) printf("-myshell: %s: event not found\n", argv[0]);
-
-            return 1;
-        }
-    }
     
     else return 0;                     /* Not a builtin command */
 }
