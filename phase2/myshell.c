@@ -407,14 +407,6 @@ int parseline(char *buf, char **argv)
 
     /* Build the argv list */
     argc = 0;
-    // while ((delim = strchr(buf, ' '))) {
-    //     argv[argc++] = buf;
-    //     *delim = '\0';
-    //     buf = delim + 1;
-    //     while (*buf && (*buf == ' ')) /* Ignore spaces */
-    //         buf++;
-    // }
-    // argv[argc] = NULL;
     
     while (*buf != '\0') {
         /* Check for double quotes */
