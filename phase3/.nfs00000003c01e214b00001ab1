@@ -1,0 +1,19 @@
+ls
+history
+ls
+ls | grep abc
+ls | grep csapp
+cat myshell.c | less
+cat myshell.c | less | grep app
+history
+ls
+cat csapp.c | more
+ls
+cat myshell.c | tail
+cat myshell.c | more
+cat myshell.c | tail
+ls
+pwd
+history
+lst | grep abc
+ls grep app
