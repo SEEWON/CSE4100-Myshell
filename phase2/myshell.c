@@ -40,8 +40,9 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);  /* parseline() returns 1 if bg, or blank line input */
-    if (argv[0] == NULL)  
-	    return;                                 /* Ignore empty lines */
+    if (bg==-1) return;
+    if (argv[0] == NULL)  return;   /* Ignore empty lines */
+
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
         if(argv[0][0]!='!') save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
@@ -101,7 +102,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 
                         int prev_history_len = strlen(prev_history)-1;
                         int cmdline_len = strlen(cmdline)-1;
-
+                                         
                         strncpy(new_cmdline, prev_history, prev_history_len);
                         strncpy(new_cmdline + prev_history_len, cmdline+2, strlen(cmdline)-2);
                         new_cmdline[prev_history_len + cmdline_len - 2] = '\n';
@@ -397,18 +398,44 @@ int parseline(char *buf, char **argv)
     int bg;              /* Background job? */
 
     /* Replace trailing '\n' with space, if exists */
-    if(buf[strlen(buf)-1]=='\n') buf[strlen(buf)-1]= ' ';       
+    if(buf[strlen(buf)-1]=='\n') buf[strlen(buf)-1]= ' ';
+    for(int i=0;i<strlen(buf);i++) {    /* Ignore quotation marks */
+        if(buf[i]=='\'') buf[i] = ' ';
+    }
     while (*buf && (*buf == ' '))   /* Ignore leading spaces */
 	    buf++;                      /* By making buffer to point address of next character by adding 1*/
 
     /* Build the argv list */
     argc = 0;
-    while ((delim = strchr(buf, ' '))) {
-	    argv[argc++] = buf;
-	    *delim = '\0';
-	    buf = delim + 1;
-	    while (*buf && (*buf == ' ')) /* Ignore spaces */
+    // while ((delim = strchr(buf, ' '))) {
+    //     argv[argc++] = buf;
+    //     *delim = '\0';
+    //     buf = delim + 1;
+    //     while (*buf && (*buf == ' ')) /* Ignore spaces */
+    //         buf++;
+    // }
+    // argv[argc] = NULL;
+    
+    while (*buf != '\0') {
+        /* Check for double quotes */
+        if (*buf == '"') {
+            char *dq_start = ++buf;
+            char *dq_end = strchr(dq_start, '"');
+            if (!dq_end) {
+                printf("Error: Double quote is not closed.\n");
+                return -1;
+            }
+            *dq_end++ = '\0';
+            argv[argc++] = dq_start;
+            buf = dq_end;
+        } else if (*buf == ' ') {
+            *buf++ = '\0';
+        } else {
+            if (argc == 0 || *(buf - 1) == '\0') {
+                argv[argc++] = buf;
+            }
             buf++;
+        }
     }
     argv[argc] = NULL;
     
