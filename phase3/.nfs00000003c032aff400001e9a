@@ -1,0 +1,9 @@
+echo "hi"
+echo "'hi'"
+echo '"hi"'
+echo "hi"
+echo "'hi'"
+echo '"hi"'
+cat abc | grep "a bc"
+cat abc | grep "a b"
+cat abc | grep '"a bc"'

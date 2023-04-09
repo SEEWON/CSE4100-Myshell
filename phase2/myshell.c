@@ -399,9 +399,6 @@ int parseline(char *buf, char **argv)
 
     /* Replace trailing '\n' with space, if exists */
     if(buf[strlen(buf)-1]=='\n') buf[strlen(buf)-1]= ' ';
-    for(int i=0;i<strlen(buf);i++) {    /* Ignore quotation marks */
-        if(buf[i]=='\'') buf[i] = ' ';
-    }
     while (*buf && (*buf == ' '))   /* Ignore leading spaces */
 	    buf++;                      /* By making buffer to point address of next character by adding 1*/
 
@@ -420,7 +417,7 @@ int parseline(char *buf, char **argv)
             *dq_end++ = '\0';
             argv[argc++] = dq_start;
             buf = dq_end;
-        } else if (*buf == ' ') {
+        } else if (*buf == ' ' || *buf =='\'') {    /* Ignore blank or single quotation marks */
             *buf++ = '\0';
         } else {
             if (argc == 0 || *(buf - 1) == '\0') {
