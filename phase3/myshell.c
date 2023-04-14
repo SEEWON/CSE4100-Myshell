@@ -1,7 +1,18 @@
 /* $begin shellmain */
 #include "csapp.h"
 #include<errno.h>
+#include<signal.h>
 #define MAXARGS   128
+
+/* Global variables */
+volatile sig_atomic_t running_jobs = 0;
+volatile sig_atomic_t reaped_pid = 0;
+
+struct each_job {
+    int num;       // 1, 2, 3, ...
+    int status;     // 0 if suspended, 1 if running
+    int pid;
+} jobs[99999];
 
 /* Function prototypes */
 void eval(char *cmdline, FILE *fp, int save_in_history, int *fd1, int *fd2);
@@ -10,10 +21,29 @@ int parseline(char *buf, char **argv);
 int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
 void save_history(char *cmdline, FILE *fp, int save_in_history);
 
+void sigint_handler() {
+    Sio_puts("\n");
+    Sio_puts("CSE4100-MP-PL> ");
+}
+
+void sigchild_handler() {
+    int old_errno = errno;
+    pid_t pid;
+    while ((pid = waitpid(-1, NULL, 0))>0) {
+        reaped_pid = pid;
+        running_jobs = running_jobs-1;
+    }
+
+    errno = old_errno;
+}
+
 int main()  
 {
     char cmdline[MAXLINE]; /* Command line */
     FILE *fp = Fopen(".myshell_history", "a+");
+
+    Signal(SIGCHLD, sigchild_handler);
+    Signal(SIGINT, sigint_handler);
 
     while (1) {
 	/* Read */
@@ -33,6 +63,11 @@ int main()
 /* If called from eval_pipeline, don't save in history. Else, save in history. */
 void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2) 
 {
+    sigset_t mask, prev;
+    Sigemptyset(&mask);
+    Sigaddset(&mask, SIGCHLD);
+    Sigprocmask(SIG_BLOCK, &mask, &prev); /* Block SIGCHLD */
+
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
     int bg;              /* Should the job run in bg or fg? */
@@ -183,11 +218,10 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
             else if (!fd1 && fd2) close(fd2[0]);
         }
        
-
-	/* Parent waits for foreground job to terminate */
+    	/* Parent waits for foreground job to terminate */
         if (!bg){ 
-            int status;
-            if (waitpid(pid, &status, 0) < 0) unix_error("waitfg: waitpid error");
+            while (pid != reaped_pid) Sigsuspend(&prev); /* Wait for signal handler to reap child process */
+            Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
         }
         else//when there is backgrount process!
             printf("%d %s", pid, cmdline);
