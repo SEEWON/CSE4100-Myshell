@@ -5,13 +5,16 @@
 #define MAXARGS   128
 
 /* Global variables */
-volatile sig_atomic_t running_jobs = 0;
+// volatile sig_atomic_t alive_jobs = 0;
+volatile sig_atomic_t total_jobs = 0;
+volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
 
 struct each_job {
-    int num;       // 1, 2, 3, ...
-    int status;     // 0 if suspended, 1 if running
+    int status;     // 0 if terminated, 1 if running, 2 if suspended
     int pid;
+    int bg_job_idx; // if bg job, 1, 2, 3, ... (0 for fg job)
+    char job_name[50];
 } jobs[99999];
 
 /* Function prototypes */
@@ -31,7 +34,17 @@ void sigchild_handler() {
     pid_t pid;
     while ((pid = waitpid(-1, NULL, 0))>0) {
         reaped_pid = pid;
-        running_jobs = running_jobs-1;
+        
+        /* Find curr reaped job and modify corresponding data */
+        for(int i=0; i<total_jobs; i++) {
+            if(pid==jobs[i].pid) {
+                jobs[i].status=0;
+                break;
+            }
+        }
+        // alive_jobs = alive_jobs-1;
+        // Sio_putl((long)reaped_pid);
+        // Sio_puts(" reaped!\n");
     }
 
     errno = old_errno;
@@ -98,7 +111,19 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 Dup2(fd2[0], 0);
             }
 
-            if (!strcmp(argv[0], "history")) {
+            if (!strcmp(argv[0], "jobs")) {
+                for(int i=0; i<total_jobs; i++) {
+                    if(jobs[i].status && jobs[i].bg_job_idx) {
+                        char status[15];
+                        jobs[i].status==1 ? strcpy(status, "running") : strcpy(status, "suspended");
+                        printf("[%d] %s %s\n", jobs[i].bg_job_idx, status, jobs[i].job_name);
+                    }
+                }
+
+                exit(0);
+            }
+
+            else if (!strcmp(argv[0], "history")) {
                 char history[MAXLINE];
                 int i=0;
                 fseek(fp, 0, SEEK_SET);         /* Moves file pointer to the beginning of the file */
@@ -220,11 +245,53 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
        
     	/* Parent waits for foreground job to terminate */
         if (!bg){ 
-            while (pid != reaped_pid) Sigsuspend(&prev); /* Wait for signal handler to reap child process */
+            /* Assign to job managing Data Structure */
+            jobs[total_jobs].status = 1;
+            jobs[total_jobs].pid = pid;
+            jobs[total_jobs].bg_job_idx = 0;
+            char job_name[50];
+            strcpy(job_name, argv[0]);
+            for(int i=1; ; i++) {
+                if(!argv[i]) break;
+                strcat(job_name, " ");
+                strcat(job_name, argv[i]);
+            }
+            strcpy(jobs[total_jobs].job_name, job_name);
+            total_jobs++;
+        
+            while (pid != reaped_pid) {
+                Sigsuspend(&prev); /* Wait for signal handler to reap child process */
+
+                /* Check and Exit loop if process terminated. */
+                /* In case multiple jobs terminated simultaneously */
+                int curr_fgjob_idx=0; // Get the data of current foreground job
+                for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
+                    if(pid==jobs[curr_fgjob_idx].pid) break;
+                }
+                if(jobs[curr_fgjob_idx].status==0) break;
+            }
             Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
         }
-        else//when there is backgrount process!
-            printf("%d %s", pid, cmdline);
+        /* When background process */
+        else {
+            jobs[total_jobs].status = 1;
+            jobs[total_jobs].pid = pid;
+            jobs[total_jobs].bg_job_idx = ++total_bg_jobs;
+            char job_name[50];
+            strcpy(job_name, argv[0]);
+            for(int i=1; ; i++) {
+                if(!argv[i]) break;
+                strcat(job_name, " ");
+                strcat(job_name, argv[i]);
+            }
+            strcpy(jobs[total_jobs].job_name, job_name);
+            total_jobs++;
+
+            Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
+            // Sio_puts("Background Child PID: ");
+            // Sio_putl((long)pid);
+            // Sio_puts("\n");
+        }
     }
     return;
 }
