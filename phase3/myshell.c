@@ -9,6 +9,7 @@
 volatile sig_atomic_t total_jobs = 0;
 volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
+volatile sig_atomic_t sigtstp_flag = 0;
 
 struct each_job {
     int status;         // 0 if terminated, 1 if running, 2 if suspended
@@ -29,7 +30,7 @@ void sigint_handler() {
     Sio_puts("CSE4100-MP-PL> ");
 }
 
-void sigchild_handler() {
+void sigchld_handler() {
     int old_errno = errno;
     pid_t pid;
     sigset_t mask, prev;
@@ -55,13 +56,23 @@ void sigchild_handler() {
     errno = old_errno;
 }
 
+void sigtstp_handler() {
+    sigtstp_flag = 1;
+}
+
+void sigcont_handler() {
+
+}
+
 int main()  
 {
     char cmdline[MAXLINE]; /* Command line */
     FILE *fp = Fopen(".myshell_history", "a+");
 
-    Signal(SIGCHLD, sigchild_handler);
+    Signal(SIGCHLD, sigchld_handler);
     Signal(SIGINT, sigint_handler);
+    Signal(SIGTSTP, sigtstp_handler);
+    Signal(SIGCONT, sigcont_handler);
 
     while (1) {
         /* Read */
@@ -81,9 +92,11 @@ int main()
 /* If called from eval_pipeline, don't save in history. Else, save in history. */
 void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2) 
 {
+    sigtstp_flag=0;
     sigset_t mask, prev;
     Sigemptyset(&mask);
     Sigaddset(&mask, SIGCHLD);
+    Sigaddset(&mask, SIGTSTP);
     Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
 
     char *argv[MAXARGS]; /* Argument list execve() */
@@ -264,6 +277,18 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                     sigset_t empty;
                     Sigemptyset(&empty);
                     Sigsuspend(&empty); /* Wait for signal handler to reap child process */
+                    if(sigtstp_flag) {  /* Find the current fg job, and set as bg */
+                        for(int i=0; i<total_jobs; i++) {
+                            if(pid==jobs[i].pid) {
+                                kill(pid, SIGTSTP);
+                                jobs[i].bg_job_idx = ++total_bg_jobs;
+                                jobs[i].status = 2;
+                                break;
+                            }
+                        }
+                        sigtstp_flag = 0;
+                        break;          /* Exit while loop */
+                    }
 
                     /* Check and Exit loop if process terminated. */
                     /* In case multiple jobs terminated simultaneously */

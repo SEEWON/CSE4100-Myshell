@@ -13,6 +13,6 @@ Background에서 동작하는 job 수행 시, 마찬가지로 child process가 �
 부모 프로세스는 SIGCHLD 시그널을 Unblock하기 전에, 수행된 job들에 대한 정보를 jobs[] 구조체 배열에 저장한다.
 
 3. SIGCHLD handler 구현
-sigchild_handler는, 호출 시 waitpid를 통해 종료된 자식 프로세스를 reaping한다.
-sigchild_handler가 동작하는 동안은, 새로운 SIGCHLD가 발생하지 않는다. (Sigprocmask로 SIGCHLD 시그널에 대한 blocking, 핸들러 종료 직전 unblock)
+sigchld_handler는, 호출 시 waitpid를 통해 종료된 자식 프로세스를 reaping한다.
+sigchld_handler가 동작하는 동안은, 새로운 SIGCHLD가 발생하지 않는다. (Sigprocmask로 SIGCHLD 시그널에 대한 blocking, 핸들러 종료 직전 unblock)
 jobs[] 구조체 배열에서 수행이 완료된 자식 프로세스에 대한 정보를 업데이트한다.
