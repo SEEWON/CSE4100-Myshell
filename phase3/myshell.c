@@ -11,9 +11,9 @@ volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
 
 struct each_job {
-    int status;     // 0 if terminated, 1 if running, 2 if suspended
-    int pid;
-    int bg_job_idx; // if bg job, 1, 2, 3, ... (0 for fg job)
+    int status;         // 0 if terminated, 1 if running, 2 if suspended
+    int pid;            // pid of running job
+    int bg_job_idx;     // if bg job, 1, 2, 3, ... (0 for fg job)
     char job_name[50];
 } jobs[99999];
 
@@ -37,10 +37,11 @@ void sigchild_handler() {
     Sigaddset(&mask, SIGCHLD);
     Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
 
-    // Sio_puts("Start waiting in sigchild handler\n");
     if ((pid = waitpid(-1, NULL, 0))>0) {
         reaped_pid = pid;
-        
+        // Sio_puts("Reaped: ");
+        // Sio_putl((long)pid);
+        // Sio_puts("\n");
         /* Find curr reaped job and modify corresponding data */
         for(int i=0; i<total_jobs; i++) {
             if(pid==jobs[i].pid) {
@@ -48,12 +49,7 @@ void sigchild_handler() {
                 break;
             }
         }
-
-        // alive_jobs = alive_jobs-1;
-        // Sio_putl((long)reaped_pid);
-        // Sio_puts(" reaped!\n");
     }
-    // Sio_puts("Finished waiting in sigchild handler\n");
 
     Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
     errno = old_errno;
@@ -103,7 +99,6 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
         if(argv[0][0]!='!') save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
-
             /* If pipeline set, set the IO descripters */
             if (fd1 && !fd2) {
                 close(fd1[0]);                  /* Will only use write-end in child */
@@ -129,7 +124,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                     }
                 }
 
-                exit(0);
+                _exit(0);
             }
 
             else if (!strcmp(argv[0], "history")) {
@@ -143,7 +138,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                     }
                 }
                 fseek(fp, 0, SEEK_END);         /* Moves file pointer to the end of the file */
-                exit(0);
+                _exit(0);
             }
 
             else if (argv[0][0]=='!') {
@@ -182,8 +177,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                         else eval_pipeline(new_cmdline, fp);  
                     }
                     else printf("-myshell: !!: event not found\n");
-
-                    exit(0);
+                    _exit(0);
                 } 
 
                 /* In case cmdline starts with !, and pass # */
@@ -234,14 +228,13 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 
                     if(!matching_history) printf("-myshell: %s: event not found\n", argv[0]);
 
-                    exit(0);
+                    _exit(0);
                 }
             }
-
-            else if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
+            if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
                 printf("%s: Command not found.\n", argv[0]);
-                exit(0);
-            };                    
+                _exit(0);
+            };
         }
         else {                      /* Close not using fd in parent */
             if (fd1 && !fd2) close(fd1[1]);
@@ -250,57 +243,57 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 close(fd2[1]);
             }
             else if (!fd1 && fd2) close(fd2[0]);
+
+            /* Parent waits for foreground job to terminate */
+            if (!bg){ 
+                /* Assign to job managing Data Structure */
+                jobs[total_jobs].status = 1;
+                jobs[total_jobs].pid = pid;
+                jobs[total_jobs].bg_job_idx = 0;
+                char job_name[50];
+                strcpy(job_name, argv[0]);
+                for(int i=1; ; i++) {
+                    if(!argv[i]) break;
+                    strcat(job_name, " ");
+                    strcat(job_name, argv[i]);
+                }
+                strcpy(jobs[total_jobs].job_name, job_name);
+                total_jobs++;
+
+                while (pid != reaped_pid) {
+                    sigset_t empty;
+                    Sigemptyset(&empty);
+                    Sigsuspend(&empty); /* Wait for signal handler to reap child process */
+
+                    /* Check and Exit loop if process terminated. */
+                    /* In case multiple jobs terminated simultaneously */
+                    int curr_fgjob_idx=0; // Get the data of current foreground job
+                    for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
+                        if(pid==jobs[curr_fgjob_idx].pid) break;
+                    }
+                    if(jobs[curr_fgjob_idx].status==0) break;
+                }
+                Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
+            }
+            /* When background process */
+            else {
+                jobs[total_jobs].status = 1;
+                jobs[total_jobs].pid = pid;
+                jobs[total_jobs].bg_job_idx = ++total_bg_jobs;
+                char job_name[50];
+                strcpy(job_name, argv[0]);
+                for(int i=1; ; i++) {
+                    if(!argv[i]) break;
+                    strcat(job_name, " ");
+                    strcat(job_name, argv[i]);
+                }
+                strcpy(jobs[total_jobs].job_name, job_name);
+                total_jobs++;
+
+                Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
+            }
         }
        
-    	/* Parent waits for foreground job to terminate */
-        if (!bg){ 
-            /* Assign to job managing Data Structure */
-            jobs[total_jobs].status = 1;
-            jobs[total_jobs].pid = pid;
-            jobs[total_jobs].bg_job_idx = 0;
-            char job_name[50];
-            strcpy(job_name, argv[0]);
-            for(int i=1; ; i++) {
-                if(!argv[i]) break;
-                strcat(job_name, " ");
-                strcat(job_name, argv[i]);
-            }
-            strcpy(jobs[total_jobs].job_name, job_name);
-            total_jobs++;
-
-            while (pid != reaped_pid) {
-                Sigsuspend(&prev); /* Wait for signal handler to reap child process */
-
-                /* Check and Exit loop if process terminated. */
-                /* In case multiple jobs terminated simultaneously */
-                int curr_fgjob_idx=0; // Get the data of current foreground job
-                for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
-                    if(pid==jobs[curr_fgjob_idx].pid) break;
-                }
-                if(jobs[curr_fgjob_idx].status==0) break;
-            }
-            Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
-        }
-        /* When background process */
-        else {
-            jobs[total_jobs].status = 1;
-            jobs[total_jobs].pid = pid;
-            jobs[total_jobs].bg_job_idx = ++total_bg_jobs;
-            char job_name[50];
-            strcpy(job_name, argv[0]);
-            for(int i=1; ; i++) {
-                if(!argv[i]) break;
-                strcat(job_name, " ");
-                strcat(job_name, argv[i]);
-            }
-            strcpy(jobs[total_jobs].job_name, job_name);
-            total_jobs++;
-
-            Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
-            // Sio_puts("Background Child PID: ");
-            // Sio_putl((long)pid);
-            // Sio_puts("\n");
-        }
     }
     return;
 }
