@@ -32,7 +32,13 @@ void sigint_handler() {
 void sigchild_handler() {
     int old_errno = errno;
     pid_t pid;
-    while ((pid = waitpid(-1, NULL, 0))>0) {
+    sigset_t mask, prev;
+    Sigemptyset(&mask);
+    Sigaddset(&mask, SIGCHLD);
+    Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
+
+    // Sio_puts("Start waiting in sigchild handler\n");
+    if ((pid = waitpid(-1, NULL, 0))>0) {
         reaped_pid = pid;
         
         /* Find curr reaped job and modify corresponding data */
@@ -42,11 +48,14 @@ void sigchild_handler() {
                 break;
             }
         }
+
         // alive_jobs = alive_jobs-1;
         // Sio_putl((long)reaped_pid);
         // Sio_puts(" reaped!\n");
     }
+    // Sio_puts("Finished waiting in sigchild handler\n");
 
+    Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
     errno = old_errno;
 }
 
@@ -59,14 +68,14 @@ int main()
     Signal(SIGINT, sigint_handler);
 
     while (1) {
-	/* Read */
-	printf("CSE4100-MP-PL> ");                   
-	fgets(cmdline, MAXLINE, stdin); 
+        /* Read */
+        printf("CSE4100-MP-PL> ");                   
+        fgets(cmdline, MAXLINE, stdin); 
 
-	if (feof(stdin))
-	    exit(0);
-    if (!strchr(cmdline, '|')) eval(cmdline, fp, 1, NULL, NULL);   /* If no pipeline included */
-    else eval_pipeline(cmdline, fp);                /* If pipeline included */
+        if (feof(stdin))
+            exit(0);
+        if (!strchr(cmdline, '|')) eval(cmdline, fp, 1, NULL, NULL);   /* If no pipeline included */
+        else eval_pipeline(cmdline, fp);                /* If pipeline included */
     } 
 }
 /* $end shellmain */
@@ -79,7 +88,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     sigset_t mask, prev;
     Sigemptyset(&mask);
     Sigaddset(&mask, SIGCHLD);
-    Sigprocmask(SIG_BLOCK, &mask, &prev); /* Block SIGCHLD */
+    Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
 
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
@@ -258,7 +267,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
             }
             strcpy(jobs[total_jobs].job_name, job_name);
             total_jobs++;
-        
+
             while (pid != reaped_pid) {
                 Sigsuspend(&prev); /* Wait for signal handler to reap child process */
 
