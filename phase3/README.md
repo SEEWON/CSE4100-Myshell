@@ -1,7 +1,7 @@
 # Phase 3
 ## 구현 내용
-### 구현 로직
-1. main() 내에서 SIGCHLD, SIGINT handler install
+### Background에서 실행 로직
+1. main() 내에서 SIGCHLD handler install
 
 2. eval() 함수 시그널 핸들링 로직 구현
 eval()은 수행되자마자, SIGCHLD 시그널을 Blocking한다. (Sigprocmask)
@@ -16,3 +16,12 @@ Background에서 동작하는 job 수행 시, 마찬가지로 child process가 �
 sigchld_handler는, 호출 시 waitpid를 통해 종료된 자식 프로세스를 reaping한다.
 sigchld_handler가 동작하는 동안은, 새로운 SIGCHLD가 발생하지 않는다. (Sigprocmask로 SIGCHLD 시그널에 대한 blocking, 핸들러 종료 직전 unblock)
 jobs[] 구조체 배열에서 수행이 완료된 자식 프로세스에 대한 정보를 업데이트한다.
+
+### SIGINT 핸들링 로직
+1. main() 내에서 SIGINT handler install
+
+2. eval() 내에서 SIGINT 시그널 Block
+Fork()후 자식 프로세스에서는 SIGINT 시그널 Unblock
+CTRL + C 입력 시, SIGINT 는 같은 프로세스 그룹에 보내지므로, 부모 프로세스 / 자식 프로세스 모두에게 전달됨. 부모 프로세스에서는 Signal이 Block되어 있으므로 자식 프로세스에만 SIGINT가 전달됨.
+부모 프로세스에 pending되어 있던 SIGINT 시그널은 eval() 함수의 return 시점에 받아들여지므로 (Sigprocmask로 Unblock됨), 핸들러의 동작에 따라 개행과 프롬프트(>)가 다시 찍힌다.
+
