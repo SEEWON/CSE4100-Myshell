@@ -11,6 +11,7 @@ volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
 volatile sig_atomic_t sigtstp_flag = 0;
 volatile sig_atomic_t sigint_flag = 0;
+volatile sig_atomic_t myshell_pgid = 0;
 
 struct each_job {
     int status;         // 0 if terminated, 1 if running, 2 if suspended
@@ -40,7 +41,8 @@ void sigchld_handler() {
     Sigaddset(&mask, SIGCHLD);
     Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
 
-    if ((pid = waitpid(-1, NULL, WNOHANG))>0) {
+    /* SIGCHLD from child will raise when child process finish, or suspend */
+    if ((pid = waitpid(-1, NULL, WNOHANG | WUNTRACED))>0) {
         reaped_pid = pid;
         // Sio_puts("Reaped: ");
         // Sio_putl((long)pid);
@@ -59,6 +61,7 @@ void sigchld_handler() {
 }
 
 void sigtstp_handler() {
+
     sigtstp_flag = 1;
 }
 
@@ -75,6 +78,8 @@ int main()
     Signal(SIGINT, sigint_handler);
     Signal(SIGTSTP, sigtstp_handler);
     Signal(SIGCONT, sigcont_handler);
+
+    myshell_pgid = getpgid(0);
 
     while (1) {
         /* Read */
@@ -102,6 +107,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     Sigaddset(&mask, SIGCHLD);
     Sigaddset(&mask, SIGINT);
     Sigaddset(&mask, SIGTSTP);
+    Sigaddset(&mask, SIGTTOU);
     Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block signals */
 
     char *argv[MAXARGS]; /* Argument list execve() */
@@ -117,10 +123,15 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
         if(argv[0][0]!='!') save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
-            sigset_t unmask_sigint_sigtstp;
-            if(!bg) Sigaddset(&unmask_sigint_sigtstp, SIGINT);
-            if(!bg) Sigaddset(&unmask_sigint_sigtstp, SIGTSTP);
-            Sigprocmask(SIG_UNBLOCK, &unmask_sigint_sigtstp, NULL);
+            sigset_t empty;
+            Sigemptyset(&empty);
+            Sigprocmask(SIG_SETMASK, &empty, NULL);
+
+            if (setpgid(0, 0) == -1 && errno == EINTR) {
+                while (setpgid(0, 0) == -1 && errno == EINTR);
+            }
+            pid_t my_pgid = getpgid(0);
+            
             /* If pipeline set, set the IO descripters */
             if (fd1 && !fd2) {
                 close(fd1[0]);                  /* Will only use write-end in child */
@@ -150,68 +161,6 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
             }
 
             else if (!strcmp(argv[0], "fg")) {
-                pid_t pid;
-                int wrong_idx = 1;
-                if(argv[1] && argv[1][0]=='%') {
-                    int job_idx = atoi(argv[1]+1);      /* skip '%', get job idx */
-                    for(int i=0; i<total_jobs; i++) {
-                        if(job_idx==jobs[i].bg_job_idx) {
-                            wrong_idx = 0;
-                            pid = jobs[i].pid;
-                            if(jobs[i].status==2) kill(jobs[i].pid, SIGCONT);
-                            jobs[i].status = 1;
-                            char status[15] = "running";
-                            printf("[%d] %s %s\n", jobs[i].bg_job_idx, status, jobs[i].job_name);
-                            break;
-                        }
-                    }
-                }
-
-                if(wrong_idx) printf("No Such Job\n");
-                else {      /* Wait the child in fg */
-                    sigset_t unmask_sigtstp;
-                    Sigaddset(&unmask_sigtstp, SIGTSTP);
-                    Sigprocmask(SIG_UNBLOCK, &unmask_sigint_sigtstp, NULL);
-                    while (pid != reaped_pid) {
-                        sigset_t empty;
-                        Sigemptyset(&empty);
-                        Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
-
-                        if(sigtstp_flag) {  /* Find the current fg job, and set as bg */
-                            for(int i=0; i<total_jobs; i++) {
-                                if(pid==jobs[i].pid) {
-                                    int rst = kill(pid, SIGTSTP);
-                                    jobs[i].bg_job_idx = ++total_bg_jobs;
-                                    jobs[i].status = 2;
-                                    break;
-                                }
-                            }
-                            sigtstp_flag = 0;
-                            break;          /* Exit while loop */
-                        }
-
-                        if(sigint_flag) {   /* Find the current fg job, and terminate */
-                            for(int i=0; i<total_jobs; i++) {
-                                if(pid==jobs[i].pid) {
-                                    // kill(pid, SIGINT);       /* CTRL + C will also be sent to child without this */
-                                    jobs[i].status = 0;
-                                    break;
-                                }
-                            }
-                            sigint_flag = 0;
-                            break;          /* Exit while loop */
-                        }
-
-                        /* Check and Exit loop if process terminated. */
-                        /* In case multiple jobs terminated simultaneously */
-                        int curr_fgjob_idx=0; // Get the data of current foreground job
-                        for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
-                            if(pid==jobs[curr_fgjob_idx].pid) break;
-                        }
-                        if(jobs[curr_fgjob_idx].status==0) break;
-                }
-
-                }
 
             }
 
@@ -338,6 +287,8 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 
             /* Parent waits for foreground job to terminate */
             if (!bg){ 
+                tcsetpgrp(STDIN_FILENO, pid);
+
                 /* Assign to job managing Data Structure */
                 jobs[total_jobs].status = 1;
                 jobs[total_jobs].pid = pid;
@@ -355,41 +306,13 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 while (pid != reaped_pid) {
                     sigset_t empty;
                     Sigemptyset(&empty);
+
+                    // Sio_puts("Suspended\n");
                     Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
+                    // Sio_puts("Finished\n");
 
-                    if(sigtstp_flag) {  /* Find the current fg job, and set as bg */
-                        for(int i=0; i<total_jobs; i++) {
-                            if(pid==jobs[i].pid) {
-                                int rst = kill(pid, SIGTSTP);
-                                jobs[i].bg_job_idx = ++total_bg_jobs;
-                                jobs[i].status = 2;
-                                break;
-                            }
-                        }
-                        sigtstp_flag = 0;
-                        break;          /* Exit while loop */
-                    }
-
-                    if(sigint_flag) {   /* Find the current fg job, and terminate */
-                        for(int i=0; i<total_jobs; i++) {
-                            if(pid==jobs[i].pid) {
-                                // kill(pid, SIGINT);       /* CTRL + C will also be sent to child without this */
-                                jobs[i].status = 0;
-                                break;
-                            }
-                        }
-                        sigint_flag = 0;
-                        break;          /* Exit while loop */
-                    }
-
-                    /* Check and Exit loop if process terminated. */
-                    /* In case multiple jobs terminated simultaneously */
-                    int curr_fgjob_idx=0; // Get the data of current foreground job
-                    for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
-                        if(pid==jobs[curr_fgjob_idx].pid) break;
-                    }
-                    if(jobs[curr_fgjob_idx].status==0) break;
                 }
+                tcsetpgrp(STDIN_FILENO, myshell_pgid);
                 Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
             }
             /* When background process */

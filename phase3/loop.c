@@ -3,6 +3,6 @@
 int main() {
   while(1) {
 	printf("Infinite loop\n");
-	sleep(3);
+	sleep(5);
   }
 }
