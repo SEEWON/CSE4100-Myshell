@@ -45,9 +45,9 @@ void sigchld_handler() {
     int status;
     if ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0) {
         reaped_pid = pid;
-        Sio_puts("Reaped or Suspended: ");
-        Sio_putl((long)pid);
-        Sio_puts("\n");
+        // Sio_puts("Reaped or Suspended: ");
+        // Sio_putl((long)pid);
+        // Sio_puts("\n");
         
         /* If child process is suspended */
         if(WIFSTOPPED(status)) {
@@ -163,14 +163,6 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 exit(0);
             }
 
-            else if (!strcmp(argv[0], "fg")) {
-         
-            }
-
-            else if (!strcmp(argv[0], "bg")) {
-                
-            }
-
             else if (!strcmp(argv[0], "history")) {
                 char history[MAXLINE];
                 int i=0;
@@ -276,7 +268,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 }
             }
             if (execvp(argv[0],argv) < 0) {     /* Execute with the right location (execvp automatically finds) */
-                printf("%s: Command not found.\n", argv[0]);
+                if (strcmp(argv[0], "fg")!=0 && strcmp(argv[0], "bg")!=0) printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             };
         }
@@ -525,6 +517,84 @@ int builtin_command(char **argv, FILE* fp, char* cmdline, int save_in_history)
         }
         if(chdir(destination) < 0) {    /* Navigate to location, print error if occurs */
             printf("-myshell: cd: %s: No such file or directory.\n", argv[1]);
+        }
+        return 1;
+    }
+    else if (!strcmp(argv[0], "fg")) {
+        int wrong_idx = 1;
+        pid_t pid;
+        int i;
+        if(argv[1] && argv[1][0]=='%') {
+            int job_idx = atoi(argv[1]+1);      /* skip '%', get job idx */
+            for(i=0; i<total_jobs; i++) {
+                if(job_idx==jobs[i].bg_job_idx && jobs[i].status) {
+                    wrong_idx = 0;
+                    pid = jobs[i].pid;
+                    jobs[i].status = 1;
+                    char status[15] = "running";
+                    printf("[%d] %s %s\n", jobs[i].bg_job_idx, status, jobs[i].job_name);
+                    break;
+                }
+            }
+        }
+
+        if(wrong_idx) printf("No Such Job\n");
+        else {
+            tcsetpgrp(STDIN_FILENO, getpgid(pid));
+            kill(jobs[i].pid, SIGCONT);
+
+            while (pid != reaped_pid) {
+                sigset_t empty;
+                Sigemptyset(&empty);
+                Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
+            }
+            tcsetpgrp(STDIN_FILENO, myshell_pgid);
+        }
+        return 1;
+    }
+    else if (!strcmp(argv[0], "bg")) {
+        int wrong_idx = 1;
+        pid_t pid;
+        int i;
+        if(argv[1] && argv[1][0]=='%') {
+            int job_idx = atoi(argv[1]+1);      /* skip '%', get job idx */
+            for(i=0; i<total_jobs; i++) {
+                if(job_idx==jobs[i].bg_job_idx && jobs[i].status) {
+                    wrong_idx = 0;
+                    pid = jobs[i].pid;
+                    jobs[i].status = 1;
+                    char status[15] = "running";
+                    printf("[%d] %s %s\n", jobs[i].bg_job_idx, status, jobs[i].job_name);
+                    break;
+                }
+            }
+        }
+
+        if(wrong_idx) printf("No Such Job\n");
+        else {
+            kill(jobs[i].pid, SIGCONT);
+        }
+        return 1;
+    }
+    else if (!strcmp(argv[0], "kill")) {
+        int wrong_idx = 1;
+        pid_t pid;
+        int i;
+        if(argv[1] && argv[1][0]=='%') {
+            int job_idx = atoi(argv[1]+1);      /* skip '%', get job idx */
+            for(i=0; i<total_jobs; i++) {
+                if(job_idx==jobs[i].bg_job_idx && jobs[i].status) {
+                    wrong_idx = 0;
+                    pid = jobs[i].pid;
+                    jobs[i].status = 0;
+                    break;
+                }
+            }
+        }
+
+        if(wrong_idx) printf("No Such Job\n");
+        else {
+            kill(jobs[i].pid, SIGKILL);
         }
         return 1;
     }
