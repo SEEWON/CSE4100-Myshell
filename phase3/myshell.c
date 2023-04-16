@@ -5,12 +5,9 @@
 #define MAXARGS   128
 
 /* Global variables */
-// volatile sig_atomic_t alive_jobs = 0;
 volatile sig_atomic_t total_jobs = 0;
 volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
-volatile sig_atomic_t sigtstp_flag = 0;
-volatile sig_atomic_t sigint_flag = 0;
 volatile sig_atomic_t myshell_pgid = 0;
 
 struct each_job {
@@ -28,9 +25,12 @@ int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
 void save_history(char *cmdline, FILE *fp, int save_in_history);
 
 void sigint_handler() {
-    sigint_flag = 1;
     Sio_puts("\n");
     Sio_puts("CSE4100-MP-PL> ");
+}
+
+void sigtstp_handler() {
+
 }
 
 void sigchld_handler() {
@@ -42,16 +42,30 @@ void sigchld_handler() {
     Sigprocmask(SIG_SETMASK, &mask, &prev); /* Block SIGCHLD */
 
     /* SIGCHLD from child will raise when child process finish, or suspend */
-    if ((pid = waitpid(-1, NULL, WNOHANG | WUNTRACED))>0) {
+    int status;
+    if ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0) {
         reaped_pid = pid;
-        // Sio_puts("Reaped: ");
-        // Sio_putl((long)pid);
-        // Sio_puts("\n");
-        /* Find curr reaped job and modify corresponding data */
-        for(int i=0; i<total_jobs; i++) {
-            if(pid==jobs[i].pid) {
-                jobs[i].status=0;
-                break;
+        Sio_puts("Reaped or Suspended: ");
+        Sio_putl((long)pid);
+        Sio_puts("\n");
+        
+        /* If child process is suspended */
+        if(WIFSTOPPED(status)) {
+            for(int i=0; i<total_jobs; i++) {
+                if(pid==jobs[i].pid) {
+                    jobs[i].status=2;
+                    if(!jobs[i].bg_job_idx) jobs[i].bg_job_idx = ++total_bg_jobs;
+                    break;
+                }
+            }
+        } 
+        /* If child process is terminated */
+        else {
+            for(int i=0; i<total_jobs; i++) {
+                if(pid==jobs[i].pid) {
+                    jobs[i].status=0;
+                    break;
+                }
             }
         }
     }
@@ -60,14 +74,6 @@ void sigchld_handler() {
     errno = old_errno;
 }
 
-void sigtstp_handler() {
-
-    sigtstp_flag = 1;
-}
-
-void sigcont_handler() {
-
-}
 
 int main()  
 {
@@ -77,7 +83,6 @@ int main()
     Signal(SIGCHLD, sigchld_handler);
     Signal(SIGINT, sigint_handler);
     Signal(SIGTSTP, sigtstp_handler);
-    Signal(SIGCONT, sigcont_handler);
 
     myshell_pgid = getpgid(0);
 
@@ -99,8 +104,6 @@ int main()
 /* If called from eval_pipeline, don't save in history. Else, save in history. */
 void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2) 
 {
-    sigint_flag = 0;
-    sigtstp_flag = 0;
     sigset_t mask, prev;
     Sigemptyset(&prev);
     Sigemptyset(&mask);
@@ -161,7 +164,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
             }
 
             else if (!strcmp(argv[0], "fg")) {
-
+         
             }
 
             else if (!strcmp(argv[0], "bg")) {
