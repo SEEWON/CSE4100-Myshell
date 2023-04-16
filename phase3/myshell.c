@@ -45,9 +45,6 @@ void sigchld_handler() {
     int status;
     if ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0) {
         reaped_pid = pid;
-        // Sio_puts("Reaped or Suspended: ");
-        // Sio_putl((long)pid);
-        // Sio_puts("\n");
         
         /* If child process is suspended */
         if(WIFSTOPPED(status)) {
@@ -301,11 +298,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                 while (pid != reaped_pid) {
                     sigset_t empty;
                     Sigemptyset(&empty);
-
-                    // Sio_puts("Suspended\n");
                     Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
-                    // Sio_puts("Finished\n");
-
                 }
                 tcsetpgrp(STDIN_FILENO, myshell_pgid);
                 Sigprocmask(SIG_SETMASK, &prev, NULL); /* Optionally unblock SIGCHLD */
@@ -331,7 +324,6 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     }
     return;
 }
-
 
 /* $begin eval_pipeline */
 /* eval_pipeline - Evaluate a command line with '|' included*/
@@ -611,6 +603,13 @@ int parseline(char *buf, char **argv)
     char *delim;         /* Points to first space delimiter */
     int argc;            /* Number of args */
     int bg;              /* Background job? */
+
+    if(buf[strlen(buf)-2]=='&' && buf[strlen(buf)-3]!=' ') {
+        buf[strlen(buf)-2]=' ';
+        buf[strlen(buf)-1]='&';
+        buf[strlen(buf)]='\n';
+        buf[strlen(buf)+1]='\0';
+    }
 
     /* Replace trailing '\n' with space, if exists */
     if(buf[strlen(buf)-1]=='\n') buf[strlen(buf)-1]= ' ';
