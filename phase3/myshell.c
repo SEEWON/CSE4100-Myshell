@@ -11,6 +11,8 @@ volatile sig_atomic_t total_bg_jobs = 0;
 volatile sig_atomic_t reaped_pid = 0;
 volatile sig_atomic_t sigtstp_flag = 0;
 volatile sig_atomic_t sigint_flag = 0;
+volatile sig_atomic_t curr_fg_pid = 0;
+volatile sig_atomic_t curr_fg_command = 0;
 
 struct each_job {
     int status;         // 0 if terminated, 1 if running, 2 if suspended
@@ -26,11 +28,6 @@ int parseline(char *buf, char **argv);
 int builtin_command(char **argv, FILE *fp, char *cmdline, int save_in_history);
 void save_history(char *cmdline, FILE *fp, int save_in_history);
 
-void sigint_handler() {
-    sigint_flag = 1;
-    Sio_puts("\n");
-    Sio_puts("CSE4100-MP-PL> ");
-}
 
 void sigchld_handler() {
     int old_errno = errno;
@@ -58,13 +55,33 @@ void sigchld_handler() {
     errno = old_errno;
 }
 
+void sigint_handler() {
+    sigint_flag = 1;
+    Sio_puts("\n");
+    Sio_puts("CSE4100-MP-PL> ");
+
+    for(int i=0; i<total_jobs; i++) {
+        if(curr_fg_pid == jobs[i].pid) {
+            kill(jobs[i].pid, SIGKILL);       /* Child will die */
+            jobs[i].status = 0;
+            break;
+        }
+    }
+}
+
 void sigtstp_handler() {
     sigtstp_flag = 1;
+
+    for(int i=0; i<total_jobs; i++) {
+        if(curr_fg_pid == jobs[i].pid) {
+            kill(jobs[i].pid, SIGSTOP);       /* Child will STOP */
+            if(jobs[i].bg_job_idx==0) jobs[i].bg_job_idx = ++total_bg_jobs;
+            jobs[i].status = 2;
+            break;
+        }
+    }
 }
 
-void sigcont_handler() {
-
-}
 
 int main()  
 {
@@ -74,7 +91,6 @@ int main()
     Signal(SIGCHLD, sigchld_handler);
     Signal(SIGINT, sigint_handler);
     Signal(SIGTSTP, sigtstp_handler);
-    Signal(SIGCONT, sigcont_handler);
 
     while (1) {
         /* Read */
@@ -117,10 +133,6 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
     if (!builtin_command(argv, fp, cmdline, save_in_history)) {  /* If builtin command, execute in current process */
         if(argv[0][0]!='!') save_history(cmdline, fp, save_in_history);              /* Store in history */
         if((pid=Fork())==0) {
-            sigset_t unmask_sigint_sigtstp;
-            if(!bg) Sigaddset(&unmask_sigint_sigtstp, SIGINT);
-            if(!bg) Sigaddset(&unmask_sigint_sigtstp, SIGTSTP);
-            Sigprocmask(SIG_UNBLOCK, &unmask_sigint_sigtstp, NULL);
             /* If pipeline set, set the IO descripters */
             if (fd1 && !fd2) {
                 close(fd1[0]);                  /* Will only use write-end in child */
@@ -145,16 +157,16 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                         printf("[%d] %s %s\n", jobs[i].bg_job_idx, status, jobs[i].job_name);
                     }
                 }
-
                 exit(0);
             }
 
             else if (!strcmp(argv[0], "fg")) {
-                pid_t pid;
                 int wrong_idx = 1;
+                pid_t pid;
+                int i;
                 if(argv[1] && argv[1][0]=='%') {
                     int job_idx = atoi(argv[1]+1);      /* skip '%', get job idx */
-                    for(int i=0; i<total_jobs; i++) {
+                    for(i=0; i<total_jobs; i++) {
                         if(job_idx==jobs[i].bg_job_idx) {
                             wrong_idx = 0;
                             pid = jobs[i].pid;
@@ -169,50 +181,17 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 
                 if(wrong_idx) printf("No Such Job\n");
                 else {      /* Wait the child in fg */
-                    sigset_t unmask_sigtstp;
-                    Sigaddset(&unmask_sigtstp, SIGTSTP);
-                    Sigprocmask(SIG_UNBLOCK, &unmask_sigint_sigtstp, NULL);
                     while (pid != reaped_pid) {
-                        sigset_t empty;
-                        Sigemptyset(&empty);
-                        Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
-
-                        if(sigtstp_flag) {  /* Find the current fg job, and set as bg */
-                            for(int i=0; i<total_jobs; i++) {
-                                if(pid==jobs[i].pid) {
-                                    int rst = kill(pid, SIGTSTP);
-                                    jobs[i].bg_job_idx = ++total_bg_jobs;
-                                    jobs[i].status = 2;
-                                    break;
-                                }
-                            }
-                            sigtstp_flag = 0;
-                            break;          /* Exit while loop */
-                        }
-
-                        if(sigint_flag) {   /* Find the current fg job, and terminate */
-                            for(int i=0; i<total_jobs; i++) {
-                                if(pid==jobs[i].pid) {
-                                    // kill(pid, SIGINT);       /* CTRL + C will also be sent to child without this */
-                                    jobs[i].status = 0;
-                                    break;
-                                }
-                            }
-                            sigint_flag = 0;
-                            break;          /* Exit while loop */
-                        }
-
-                        /* Check and Exit loop if process terminated. */
-                        /* In case multiple jobs terminated simultaneously */
-                        int curr_fgjob_idx=0; // Get the data of current foreground job
-                        for(; curr_fgjob_idx<total_jobs; curr_fgjob_idx++) {
-                            if(pid==jobs[curr_fgjob_idx].pid) break;
-                        }
-                        if(jobs[curr_fgjob_idx].status==0) break;
+                        curr_fg_pid = pid;
+                        sigset_t unblock_sigchld;
+                        Sigaddset(&unblock_sigchld, SIGINT);
+                        Sigaddset(&unblock_sigchld, SIGTSTP);
+                        Sio_puts("Suspended\n");
+                        Sigsuspend(&unblock_sigchld); /* Wait for SIGCHLD */
+                        Sio_puts("Finish Suspend\n");
+                    }
                 }
-
-                }
-
+                exit(0);
             }
 
             else if (!strcmp(argv[0], "bg")) {
@@ -339,6 +318,7 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
             /* Parent waits for foreground job to terminate */
             if (!bg){ 
                 /* Assign to job managing Data Structure */
+                if(strcmp(argv[0], "fg")) curr_fg_pid = pid; /* Only set as curr_fg when not "fg" command */
                 jobs[total_jobs].status = 1;
                 jobs[total_jobs].pid = pid;
                 jobs[total_jobs].bg_job_idx = 0;
@@ -358,26 +338,11 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
                     Sigsuspend(&empty); /* Wait for any signal. SIGCHLD, SIGTSTP, SIGINT */
 
                     if(sigtstp_flag) {  /* Find the current fg job, and set as bg */
-                        for(int i=0; i<total_jobs; i++) {
-                            if(pid==jobs[i].pid) {
-                                int rst = kill(pid, SIGTSTP);
-                                jobs[i].bg_job_idx = ++total_bg_jobs;
-                                jobs[i].status = 2;
-                                break;
-                            }
-                        }
                         sigtstp_flag = 0;
                         break;          /* Exit while loop */
                     }
 
                     if(sigint_flag) {   /* Find the current fg job, and terminate */
-                        for(int i=0; i<total_jobs; i++) {
-                            if(pid==jobs[i].pid) {
-                                // kill(pid, SIGINT);       /* CTRL + C will also be sent to child without this */
-                                jobs[i].status = 0;
-                                break;
-                            }
-                        }
                         sigint_flag = 0;
                         break;          /* Exit while loop */
                     }
