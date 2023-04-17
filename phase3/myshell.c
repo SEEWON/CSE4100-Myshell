@@ -329,12 +329,15 @@ void eval(char *cmdline, FILE* fp, int save_in_history, int *fd1, int *fd2)
 /* eval_pipeline - Evaluate a command line with '|' included*/
 void eval_pipeline(char *cmdline, FILE* fp) 
 {
-    int i=0;
+    char tempbuffer[MAXLINE]; char *tempargv[MAXARGS]; int bg=0;
+    strcpy(tempbuffer, cmdline); bg = parseline(tempbuffer, tempargv);
 
+    int i=0;
     /* Count number of command connected with pipe */
     char temp[MAXLINE], original_cmdline[MAXLINE];
     strcpy(temp, cmdline); strcpy(original_cmdline, cmdline);
     int each_cmd_cnt=0;
+    char executing_cmdline[MAXLINE];
     char *each_cmdline = strtok(temp, "|");
     while(each_cmdline) {
         i++;
@@ -348,14 +351,20 @@ void eval_pipeline(char *cmdline, FILE* fp)
 
     /* Execute the first command, send the result to first pipe */
     each_cmdline = strtok(cmdline, "|");
-    eval(each_cmdline, fp, 0, fd1, NULL);
+    executing_cmdline[0]='\0';
+    strcpy(executing_cmdline, each_cmdline);
+    if(bg) strcat(executing_cmdline, "&");
+    eval(executing_cmdline, fp, 0, fd1, NULL);
 
     /* Get input from pipe fd1, Execute the between commands, send the result to next pipe fd2 */
     int j=0;
     while(j < i-2) {
         j++;
         each_cmdline = strtok(NULL, "|");
-        eval(each_cmdline, fp, 0, fd1, fd2);    // fd1로부터 읽음, fd2로 씀.
+        executing_cmdline[0]='\0';
+        strcpy(executing_cmdline, each_cmdline);
+        if(bg) strcat(executing_cmdline, "&");
+        eval(executing_cmdline, fp, 0, fd1, fd2);    // fd1로부터 읽음, fd2로 씀.
 
         free(fd1);
         fd1 = (int*) malloc(sizeof(int)*2);
@@ -368,7 +377,10 @@ void eval_pipeline(char *cmdline, FILE* fp)
 
     /* Execute the last command, print the result to stdout */
     each_cmdline = strtok(NULL, "|");
-    eval(each_cmdline, fp, 0, NULL, fd1); //fd1로부터 읽음, stdout으로 씀.
+    executing_cmdline[0]='\0';
+    strcpy(executing_cmdline, each_cmdline);
+    if(bg) strcat(executing_cmdline, "&");
+    eval(executing_cmdline, fp, 0, NULL, fd1); //fd1로부터 읽음, stdout으로 씀.
     free(fd2);
 
     /* Substitute !!, !# to corresponding commandline and save to history */
