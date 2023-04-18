@@ -43,9 +43,8 @@ void sigchld_handler() {
 
     /* SIGCHLD from child will raise when child process finish, or suspend */
     int status;
-    if ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0) {
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0) {
         reaped_pid = pid;
-        
         /* If child process is suspended */
         if(WIFSTOPPED(status)) {
             for(int i=0; i<total_jobs; i++) {
@@ -353,7 +352,7 @@ void eval_pipeline(char *cmdline, FILE* fp)
     each_cmdline = strtok(cmdline, "|");
     executing_cmdline[0]='\0';
     strcpy(executing_cmdline, each_cmdline);
-    if(bg) strcat(executing_cmdline, "&");
+    if(bg) strcat(executing_cmdline, " &");
     eval(executing_cmdline, fp, 0, fd1, NULL);
 
     /* Get input from pipe fd1, Execute the between commands, send the result to next pipe fd2 */
@@ -363,7 +362,7 @@ void eval_pipeline(char *cmdline, FILE* fp)
         each_cmdline = strtok(NULL, "|");
         executing_cmdline[0]='\0';
         strcpy(executing_cmdline, each_cmdline);
-        if(bg) strcat(executing_cmdline, "&");
+        if(bg) strcat(executing_cmdline, " &");
         eval(executing_cmdline, fp, 0, fd1, fd2);    // fd1로부터 읽음, fd2로 씀.
 
         free(fd1);
@@ -379,7 +378,6 @@ void eval_pipeline(char *cmdline, FILE* fp)
     each_cmdline = strtok(NULL, "|");
     executing_cmdline[0]='\0';
     strcpy(executing_cmdline, each_cmdline);
-    if(bg) strcat(executing_cmdline, "&");
     eval(executing_cmdline, fp, 0, NULL, fd1); //fd1로부터 읽음, stdout으로 씀.
     free(fd2);
 
@@ -616,13 +614,6 @@ int parseline(char *buf, char **argv)
     int argc;            /* Number of args */
     int bg;              /* Background job? */
 
-    if(buf[strlen(buf)-2]=='&' && buf[strlen(buf)-3]!=' ') {
-        buf[strlen(buf)-2]=' ';
-        buf[strlen(buf)-1]='&';
-        buf[strlen(buf)]='\n';
-        buf[strlen(buf)+1]='\0';
-    }
-
     /* Replace trailing '\n' with space, if exists */
     if(buf[strlen(buf)-1]=='\n') buf[strlen(buf)-1]= ' ';
     while (*buf && (*buf == ' '))   /* Ignore leading spaces */
@@ -658,8 +649,11 @@ int parseline(char *buf, char **argv)
 	return 1;
 
     /* Should the job run in the background? */
-    if ((bg = (*argv[argc-1] == '&')) != 0)
-	argv[--argc] = NULL;
+    if ((bg = (*argv[argc-1] == '&')) != 0) argv[--argc] = NULL;
+    else if (argv[argc-1][strlen(argv[argc-1])-1]=='&') {
+        bg = 1;
+        argv[argc-1][strlen(argv[argc-1])-1] = '\0';
+    }
 
     return bg;
 }
