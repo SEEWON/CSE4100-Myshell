@@ -22,3 +22,6 @@ fd1을 사용하는 파이프는 이미 한번 사용했으므로(close했음), 
 fd1[0]에 있는 앞선 command의 출력을 읽어 와 stdout으로 출력한다.
 
 8. 위 5, 6, 7번 항목은 모두 eval() 함수를 호출해 수행되나, 각 경우의 파라미터를 다르게 넘겨 구분한다. 5번 항목은 fd1만, 6번 항목은 fd1/fd2를, 7번 항목은 fd1만 넘긴다. 5번 항목은 7번 항목과 구분하기 위해 fd1를 코드 상 fd2자리에서 넘긴다. 7번 항목, 가장 마지막으로 실행되는 command에 대해 eval() 내에서 처리되는 fd는 코드 상 fd2 자리에서 사용되나 실제 eval_pipeline에서는 fd1이다.
+
+## Flowchart
+![fc2](https://github.com/SEEWON/Myshell/assets/50395394/95b7aff3-71ac-4d3f-a613-486dc85d3fb2)

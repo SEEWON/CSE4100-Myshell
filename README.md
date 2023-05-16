@@ -1,7 +1,7 @@
 # Myshell
 서강대학교 컴퓨터공학과 전공과목 '멀티코어 프로그래밍(구. 시스템 프로그래밍)'의 첫 번째 과제입니다.
 
-Bash와 같은 Linux shell을 직접 구현해 보는 과제로, 각 Phase별 구현 목표는 아래와 같고, 각 phase의 구현 방법에 대한 세부 설명은 디렉토리 내의 ReadMe에 기재되어 있습니다.
+Bash와 같은 Linux shell을 직접 구현해 보는 과제로, 각 Phase별 구현 목표는 아래와 같고, 각 phase의 구현 방법에 대한 세부 설명은 document.docx 문서 및 디렉토리 내의 ReadMe에 기재되어 있습니다.
 
 ## Phase1: Building and Testing Your Shell
 기본 linux 명령어 수행이 가능한 쉘 만들기.

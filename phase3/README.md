@@ -31,3 +31,6 @@ jobs[] 구조체 배열에서 수행이 완료된 자식 프로세스에 대한 
 ### Pipeline 백그라운드 동작 로직
 기존 Pipeline 동작은, eval_pipeline() 함수 내에서 command를 파싱해, 각 command에 대해 eval()을 수행한다. Pipeline을 포함한 백그라운드 커맨드, 예를 들어 ./a.out | grep abc & 가 들어오면 ./a.out에 대한 eval()이 수행되고 이 동작은 foreground로 처리되어 a.out이 종료될 때까지 Terminal은 busy 상태가 된다. 따라서 백그라운드로 들어오는 파이프라인 커맨드에서는, 모든 파싱된 커맨드의 eval() 수행을 백그라운드로 동작시켜야 한다.
 eval_pipeline() 함수 내에서 parseline()을 사용해 백그라운드로 돌아야 하는지 확인하고, 만약 그렇다면 each_command 뒤에 &를 추가해 각 command를 백그라운드로 수행될 수 있도록 구현했다.
+
+## Flowchart
+![fc3](https://github.com/SEEWON/Myshell/assets/50395394/cc9fe69b-d39e-4521-9eef-092caea93eff)

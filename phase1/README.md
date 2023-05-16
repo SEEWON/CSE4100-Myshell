@@ -30,3 +30,6 @@ eval() 내부에서 호출, 입력되는 cmdline history를 경우에 따라 저
 입력된 cmdline이 builtin_command에 해당하지 않는 경우 항상 호출, 히스토리 저장.
 
 마지막으로 저장된 history cmdline과 동일할 경우, 중복 저장하지 않음.
+
+## Flowchart
+![fc1](https://github.com/SEEWON/Myshell/assets/50395394/8133d6be-ecea-43eb-a890-90d9eee6a8f7)
