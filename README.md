@@ -27,7 +27,7 @@ Linux의 Pipeline 기능 구현하기.
 
 Linux의 pipe(), dup2() 등의 system call을 활용해 구현했습니다.
 
-## Phase3
+## Phase3: Run Processes in Background
 Linux의 job control 기능 구현하기.
 
 명령어를 통해 Foreground와 Background에서 프로세스 실행 및 이동, kill이 가능하도록 구현했습니다.
@@ -56,4 +56,4 @@ Linux의 sigsuspend(), tcsetpgrp() 등의 system call과, SIGCHLD / SIGINT / SIG
 ## Evaluation
 프로젝트 점수: 120/120 (만점)
 
-평균 점수: 63.235
+분반 평균 점수: 63.235
